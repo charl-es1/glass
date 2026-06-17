@@ -1,0 +1,192 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id                    String                 @id @default(uuid())
+  name                  String
+  email                 String                 @unique
+  password_hash         String
+  role                  String                 // "admin", "user", "supervisor", "security"
+  status                String                 // "active" or "inactive"
+  pin                   String?
+  created_at            DateTime               @default(now())
+  quotes                Quote[]
+  activity_logs         ActivityLog[]
+  invoices              Invoice[]
+  security_verifications SecurityVerification[]
+
+  @@map("users")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  user_id     String?
+  user        User?    @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  user_email  String?
+  user_name   String?
+  action      String   // e.g. "LOGIN", "LOGOUT", "CREATE_QUOTE", etc.
+  details     String   // e.g. "Saved quote for clear glass: 1.5m x 2.0m"
+  created_at  DateTime @default(now())
+
+  @@map("activity_logs")
+}
+
+model GlassType {
+  id             String   @id @default(uuid())
+  name           String   @unique
+  price_per_sqm  Float    // price in GHS
+  updated_at     DateTime @updatedAt
+  quotes         Quote[]
+  line_items     LineItem[]
+
+  @@map("glass_types")
+}
+
+model Quote {
+  id            String     @id @default(uuid())
+  user_id       String
+  user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  glass_type_id String?
+  glass_type    GlassType? @relation(fields: [glass_type_id], references: [id], onDelete: Restrict)
+  length        Float?     // in meters
+  width         Float?     // in meters
+  thickness     Float?     @default(6.0) // in millimeters
+  area          Float?     // computed in meters sq
+  total_price   Float      // computed total price in GHS
+  items_json    String?    // JSON string storing list of items
+  discount_percentage Float  @default(0.0)
+  created_at    DateTime   @default(now())
+  line_items    LineItem[]
+
+  @@map("quotes")
+}
+
+model Customer {
+  id         String    @id @default(uuid())
+  name       String
+  email      String?
+  phone      String?
+  created_at DateTime  @default(now())
+  invoices   Invoice[]
+
+  @@map("customers")
+}
+
+model Invoice {
+  id                  String      @id @default(uuid())
+  invoice_no          String      @unique
+  customer_id         String
+  customer            Customer    @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  user_id             String
+  user                User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  issue_date          DateTime    @default(now())
+  due_date            DateTime
+  status              String      // "unpaid", "partially_paid", "paid", "cancelled", "ready_for_dispatch", "dispatched", "on_hold_discrepancy"
+  subtotal            Float
+  discount_percentage Float       @default(0.0)
+  tax                 Float       @default(0.0)
+  total_amount        Float
+  amount_paid         Float       @default(0.0)
+  balance_due         Float
+  driver_name         String?
+  vehicle_no          String?
+  created_at          DateTime    @default(now())
+  line_items          LineItem[]
+  bills               Bill[]
+  security_verification SecurityVerification?
+
+  @@map("invoices")
+}
+
+model LineItem {
+  id            String    @id @default(uuid())
+  invoice_id    String
+  invoice       Invoice   @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  quote_id      String?
+  quote         Quote?    @relation(fields: [quote_id], references: [id], onDelete: SetNull)
+  glass_type_id String
+  glass_type    GlassType @relation(fields: [glass_type_id], references: [id], onDelete: Restrict)
+  length        Float
+  width         Float
+  thickness     Float
+  area          Float
+  quantity      Int       @default(1)
+  unit_price    Float
+  total_price   Float
+  created_at    DateTime  @default(now())
+
+  @@map("line_items")
+}
+
+model Bill {
+  id             String   @id @default(uuid())
+  receipt_no     String   @unique
+  invoice_id     String
+  invoice        Invoice  @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  amount_paid    Float
+  payment_date   DateTime @default(now())
+  payment_method String
+  notes          String?
+  created_at     DateTime @default(now())
+
+  @@map("bills")
+}
+
+model SecurityVerification {
+  id             String   @id @default(uuid())
+  invoice_id     String   @unique
+  invoice        Invoice  @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  officer_id     String
+  officer        User     @relation(fields: [officer_id], references: [id], onDelete: Cascade)
+  officer_name   String
+  signatory_name String
+  signature_data String   // base64/dataURL representation of signature
+  status         String   // "dispatched" or "on_hold_discrepancy"
+  notes          String?
+  verified_at    DateTime
+  is_offline     Boolean  @default(false)
+  synced_at      DateTime?
+  clearance_ref  String   @unique // e.g. CLR-1001
+  items          SecurityVerificationItem[]
+  logs           SecurityLog[]
+
+  @@map("security_verifications")
+}
+
+model SecurityVerificationItem {
+  id              String               @id @default(uuid())
+  verification_id String
+  verification    SecurityVerification @relation(fields: [verification_id], references: [id], onDelete: Cascade)
+  line_item_id    String
+  glass_type_name String
+  dimensions      String
+  quantity        Int
+  is_verified     Boolean              @default(false)
+  is_flagged      Boolean              @default(false)
+  flag_notes      String?
+
+  @@map("security_verification_items")
+}
+
+model SecurityLog {
+  id              String                @id @default(uuid())
+  verification_id String?
+  verification    SecurityVerification? @relation(fields: [verification_id], references: [id], onDelete: SetNull)
+  officer_name    String
+  action          String                // e.g. "TICK_ITEM", "FLAG_ITEM", "SIGN", "SUBMIT"
+  details         String
+  timestamp       DateTime
+  is_offline      Boolean               @default(false)
+
+  @@map("security_logs")
+}
+
