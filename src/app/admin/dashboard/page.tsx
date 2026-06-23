@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { jsPDF } from 'jspdf';
 import styles from './admin.module.css';
+import GlazingConfigTabContent from './GlazingConfigTabContent';
 
 interface User {
   id: string;
@@ -82,7 +83,7 @@ export default function AdminDashboard() {
 
   // Navigation & Authentication state
   const [adminUser, setAdminUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'glass' | 'users' | 'quotes' | 'logs' | 'reports' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'glass' | 'users' | 'quotes' | 'logs' | 'reports' | 'security' | 'glazing-config'>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -94,6 +95,8 @@ export default function AdminDashboard() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [catalogCategories, setCatalogCategories] = useState<any[]>([]);
+  const [glazingLoading, setGlazingLoading] = useState(false);
 
   // Security Exit Audits state
   const [securityLogs, setSecurityLogs] = useState<any[]>([]);
@@ -249,6 +252,9 @@ export default function AdminDashboard() {
       if (activeTab === 'security') {
         fetchSecurityData();
       }
+      if (activeTab === 'glazing-config') {
+        fetchGlazingCatalog();
+      }
     } catch (err) {
       console.error('Error reloading admin lists:', err);
     }
@@ -299,6 +305,26 @@ export default function AdminDashboard() {
       fetchSecurityData();
     }
   }, [activeTab, filterSecurityInvoiceNo, filterSecurityOfficer, filterSecurityStatus]);
+
+  const fetchGlazingCatalog = async () => {
+    setGlazingLoading(true);
+    try {
+      const { getCatalog } = await import('../glazing-config/actions');
+      const data = await getCatalog();
+      setCatalogCategories(data as any);
+    } catch (err: any) {
+      console.error('Error fetching glazing catalog:', err);
+      setError('Failed to fetch glazing catalog configurations.');
+    } finally {
+      setGlazingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'glazing-config') {
+      fetchGlazingCatalog();
+    }
+  }, [activeTab]);
 
   const handleLogout = async () => {
     try {
@@ -905,6 +931,12 @@ export default function AdminDashboard() {
               >
                 Manage Glass Types
               </button>
+              <button
+                className={`${styles.sidebarLink} ${activeTab === 'glazing-config' ? styles.active : ''}`}
+                onClick={() => { setActiveTab('glazing-config'); setError(''); setSuccess(''); }}
+              >
+                Glazing Catalog Config
+              </button>
             </>
           )}
           <button
@@ -1044,6 +1076,22 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ================= GLAZING CONFIG CATALOG TAB ================= */}
+          {activeTab === 'glazing-config' && (
+            <div className={styles.tabContent}>
+              {glazingLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  Loading glazing configurations...
+                </div>
+              ) : (
+                <GlazingConfigTabContent
+                  initialCategories={catalogCategories}
+                  onCatalogChange={fetchGlazingCatalog}
+                />
+              )}
             </div>
           )}
 

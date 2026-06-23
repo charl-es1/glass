@@ -1751,6 +1751,15 @@ export default function StaffDashboard() {
                                   Dispatch
                                 </button>
                               )}
+                              {['paid', 'ready_for_dispatch', 'dispatched'].includes(inv.status) && (
+                                <a
+                                  href={`/projects/${inv.id}/drawings`}
+                                  className="btn btn-secondary"
+                                  style={{ padding: '6px 10px', fontSize: '0.8rem', borderColor: 'var(--success)', color: 'var(--success)' }}
+                                >
+                                  Drawings
+                                </a>
+                              )}
                             </div>
                           </td>
                         </tr>

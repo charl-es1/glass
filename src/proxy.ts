@@ -103,6 +103,24 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Protect /projects routes (Technical shop drawings)
+  if (pathname.startsWith('/projects')) {
+    if (!payload) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      
+      const response = NextResponse.redirect(loginUrl);
+      response.cookies.delete('token'); // clear invalid token
+      return response;
+    }
+    
+    if (payload.role === 'security') {
+      return NextResponse.redirect(new URL('/security', request.url));
+    }
+    
+    return NextResponse.next();
+  }
+
   // Protect /security routes (Security Gate)
   if (pathname.startsWith('/security')) {
     // Anyone is allowed to load the /security route so they can type their PIN.

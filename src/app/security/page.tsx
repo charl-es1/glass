@@ -90,6 +90,7 @@ export default function SecurityCheckpoint() {
   const [checkedItems, setCheckedItems] = useState<Record<string, { is_verified: boolean; is_flagged: boolean; flag_notes: string }>>({});
   const [signatoryName, setSignatoryName] = useState('');
   const [generalNotes, setGeneralNotes] = useState('');
+  const [hasSignature, setHasSignature] = useState(false);
 
   // Flag Discrepancy Modal/Dialog state
   const [flagDialogItem, setFlagDialogItem] = useState<{ id: string; name: string } | null>(null);
@@ -303,6 +304,7 @@ export default function SecurityCheckpoint() {
     setCheckedItems({});
     setSignatoryName('');
     setGeneralNotes('');
+    setHasSignature(false);
   };
 
   // Canvas Drawing logic for fingerprint signature capture
@@ -370,6 +372,13 @@ export default function SecurityCheckpoint() {
 
   const stopDrawing = () => {
     isDrawingRef.current = false;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const blank = document.createElement('canvas');
+      blank.width = canvas.width;
+      blank.height = canvas.height;
+      setHasSignature(canvas.toDataURL() !== blank.toDataURL());
+    }
   };
 
   const clearSignature = () => {
@@ -379,6 +388,7 @@ export default function SecurityCheckpoint() {
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
   };
 
   // Toggle check/verification item status
@@ -459,20 +469,7 @@ export default function SecurityCheckpoint() {
     if (!selectedInvoice || !signatoryName) return false;
     const progress = getVerificationProgress();
     if (progress < 100) return false;
-
-    // Check signature exists on canvas
-    const canvas = canvasRef.current;
-    if (!canvas) return false;
-
-    // Direct check of blank canvas
-    const blank = document.createElement('canvas');
-    blank.width = canvas.width;
-    blank.height = canvas.height;
-    if (canvas.toDataURL() === blank.toDataURL()) {
-      return false; // Signature pad empty
-    }
-
-    return true;
+    return hasSignature;
   };
 
   // Submit exit checkpoint gate verification
@@ -591,6 +588,7 @@ export default function SecurityCheckpoint() {
         setCheckedItems({});
         setSignatoryName('');
         setGeneralNotes('');
+        setHasSignature(false);
 
         // Refresh lists
         await fetchBills();
@@ -650,6 +648,7 @@ export default function SecurityCheckpoint() {
         setCheckedItems({});
         setSignatoryName('');
         setGeneralNotes('');
+        setHasSignature(false);
       }
     } catch (err: any) {
       setError(err.message || 'Error executing gate submission.');
@@ -1040,6 +1039,7 @@ export default function SecurityCheckpoint() {
                         setCheckedItems({});
                         setSignatoryName(inv.driver_name || '');
                         setGeneralNotes('');
+                        setHasSignature(false);
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
@@ -1309,7 +1309,10 @@ export default function SecurityCheckpoint() {
                   type="button"
                   className="btn btn-secondary"
                   style={{ flex: 1, padding: '14px', fontSize: '1rem' }}
-                  onClick={() => setSelectedInvoice(null)}
+                  onClick={() => {
+                    setSelectedInvoice(null);
+                    setHasSignature(false);
+                  }}
                 >
                   Cancel
                 </button>

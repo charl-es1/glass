@@ -190,3 +190,29 @@ model SecurityLog {
   @@map("security_logs")
 }
 
+model Category {
+  id         String    @id @default(uuid())
+  name       String    @unique
+  slug       String    @unique
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  subtypes   SubType[]
+
+  @@map("categories")
+}
+
+model SubType {
+  id             String   @id @default(uuid())
+  categoryId     String   @map("category_id")
+  category       Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name           String   @unique
+  slug           String   @unique
+  defaultWidth   Int      @map("default_width")
+  defaultHeight  Int      @map("default_height")
+  operationalType String   @map("operational_type") // 'sliding' | 'hinged' | 'fixed' | 'awning'
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@map("subtypes")
+}
+
