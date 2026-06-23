@@ -166,14 +166,6 @@ function LoginContent() {
             )}
           </button>
         </form>
-
-        <div style={{ marginTop: '24px', textAlign: 'center' }}>
-          <p className="text-muted" style={{ fontSize: '0.825rem' }}>
-            Default accounts: <br />
-            Admin: <code>admin@glasscutting.com</code> / <code>admin123</code> <br />
-            Staff: <code>staff@glasscutting.com</code> / <code>staff123</code>
-          </p>
-        </div>
       </div>
     </div>
   );
