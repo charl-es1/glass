@@ -791,42 +791,63 @@ export default function AdminDashboard() {
       doc.setFont('Helvetica', 'bold');
       doc.text('Payment Description / Notes', 18, 93.5);
       doc.text('Amount Received', 150, 93.5);
+      let currentY = 106;
+      doc.setFont('Helvetica', 'bold');
+      doc.text(`${bill.amount_paid.toFixed(2)} GHS`, 150, currentY);
 
       doc.setFont('Helvetica', 'normal');
-      doc.text(bill.notes || `Installment payment for Invoice ${invoice.invoice_no}`, 18, 106);
-      doc.setFont('Helvetica', 'bold');
-      doc.text(`${bill.amount_paid.toFixed(2)} GHS`, 150, 106);
+      if (bill.notes && bill.notes.trim() !== '') {
+        doc.text(`Notes: ${bill.notes}`, 18, currentY);
+        currentY += 6;
+      }
 
+      doc.setFont('Helvetica', 'bold');
+      doc.text('Items Paid For:', 18, currentY);
+      currentY += 6;
+
+      doc.setFont('Helvetica', 'normal');
+      if (invoice.line_items && invoice.line_items.length > 0) {
+        invoice.line_items.forEach((item: any) => {
+          const itemText = `${item.quantity}x ${item.glass_type?.name || 'Glass'} (${item.thickness}mm) - ${item.length.toFixed(2)}m x ${item.width.toFixed(2)}m`;
+          doc.text(itemText, 22, currentY);
+          currentY += 6;
+        });
+      } else {
+        doc.text(`Installment payment for Invoice ${invoice.invoice_no}`, 22, currentY);
+        currentY += 6;
+      }
+
+      const tableBottomY = currentY + 2;
       doc.setDrawColor(226, 232, 240);
-      doc.line(15, 112, 195, 112);
+      doc.line(15, tableBottomY, 195, tableBottomY);
 
       // Balance summary block
-      let currentY = 125;
+      let summaryY = tableBottomY + 12;
       doc.setFont('Helvetica', 'normal');
-      doc.text('Invoice Total Amount:', 120, currentY);
-      doc.text(`${invoice.total_amount.toFixed(2)} GHS`, 170, currentY);
-      currentY += 8;
+      doc.text('Invoice Total Amount:', 120, summaryY);
+      doc.text(`${invoice.total_amount.toFixed(2)} GHS`, 170, summaryY);
+      summaryY += 8;
 
-      doc.text('Total Amount Paid so far:', 120, currentY);
-      doc.text(`${invoice.amount_paid.toFixed(2)} GHS`, 170, currentY);
-      currentY += 8;
+      doc.text('Total Amount Paid so far:', 120, summaryY);
+      doc.text(`${invoice.amount_paid.toFixed(2)} GHS`, 170, summaryY);
+      summaryY += 8;
 
       doc.setFont('Helvetica', 'bold');
-      doc.text('Remaining Balance Due:', 120, currentY);
-      doc.text(`${invoice.balance_due.toFixed(2)} GHS`, 170, currentY);
+      doc.text('Remaining Balance Due:', 120, summaryY);
+      doc.text(`${invoice.balance_due.toFixed(2)} GHS`, 170, summaryY);
 
       // Receipt footer card
-      currentY += 15;
+      summaryY += 15;
       doc.setFillColor(240, 253, 250); // green bg
-      doc.rect(15, currentY, 180, 18, 'F');
+      doc.rect(15, summaryY, 180, 18, 'F');
       doc.setDrawColor(16, 185, 129); // green border
-      doc.rect(15, currentY, 180, 18, 'D');
+      doc.rect(15, summaryY, 180, 18, 'D');
 
       doc.setTextColor(6, 95, 70); // deep green text
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(11);
-      doc.text('Thank you for your business!', 22, currentY + 11);
-      doc.text(`Receipt Reference: ${bill.receipt_no}`, 120, currentY + 11);
+      doc.text('Thank you for your business!', 22, summaryY + 11);
+      doc.text(`Receipt Reference: ${bill.receipt_no}`, 120, summaryY + 11);;
 
       // Footer
       doc.setTextColor(148, 163, 184);
