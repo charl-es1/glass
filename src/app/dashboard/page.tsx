@@ -115,6 +115,7 @@ export default function StaffDashboard() {
 
 
   const [activeTab, setActiveTab] = useState<'calculator' | 'invoices'>('calculator');
+  const [invoiceViewTab, setInvoiceViewTab] = useState<'active' | 'paid'>('active');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
@@ -1662,17 +1663,42 @@ export default function StaffDashboard() {
               </div>
             </div>
 
+            {/* Sub-tabs to filter between Active Ledger Accounts and Paid Invoices History */}
+            <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '12px', marginTop: '-8px' }}>
+              <button
+                type="button"
+                className={`btn ${invoiceViewTab === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px' }}
+                onClick={() => setInvoiceViewTab('active')}
+              >
+                Outstanding / Active Accounts
+              </button>
+              <button
+                type="button"
+                className={`btn ${invoiceViewTab === 'paid' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px' }}
+                onClick={() => setInvoiceViewTab('paid')}
+              >
+                Paid Invoices History
+              </button>
+            </div>
+
             {invoicesLoading && invoices.length === 0 ? (
               <div className={styles.emptyState}>
                 <div className={styles.spinner}></div>
                 <p className="text-muted" style={{ marginTop: '12px' }}>Loading invoices...</p>
               </div>
-            ) : invoices.length === 0 ? (
+            ) : invoices.filter((inv) => {
+              const isPaid = inv.balance_due <= 0.01 || inv.status === 'paid';
+              return invoiceViewTab === 'paid' ? isPaid : !isPaid;
+            }).length === 0 ? (
               <div className={styles.emptyState}>
                 <svg width="48" height="48" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" className="text-muted">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
                 </svg>
-                <p className="text-muted" style={{ marginTop: '12px' }}>No invoices registered in the system yet.</p>
+                <p className="text-muted" style={{ marginTop: '12px' }}>
+                  {invoiceViewTab === 'paid' ? 'No fully paid invoices history found.' : 'No active outstanding invoices found.'}
+                </p>
               </div>
             ) : (
               <div className="table-container">
@@ -1693,7 +1719,12 @@ export default function StaffDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.map((inv) => {
+                    {invoices
+                      .filter((inv) => {
+                        const isPaid = inv.balance_due <= 0.01 || inv.status === 'paid';
+                        return invoiceViewTab === 'paid' ? isPaid : !isPaid;
+                      })
+                      .map((inv) => {
                       let badgeClass = 'badge-danger';
                       if (inv.status === 'paid') badgeClass = 'badge-success';
                       else if (inv.status === 'partially_paid') badgeClass = 'badge-primary';
@@ -1746,7 +1777,7 @@ export default function StaffDashboard() {
                               >
                                 PDF
                               </button>
-                              {inv.status !== 'paid' && inv.status !== 'cancelled' && (
+                              {inv.balance_due > 0.01 && inv.status !== 'cancelled' && (
                                 <button
                                   className="btn btn-primary"
                                   style={{ padding: '6px 10px', fontSize: '0.8rem' }}
