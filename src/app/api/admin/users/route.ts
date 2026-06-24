@@ -4,6 +4,8 @@ import prisma from '@/lib/db';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
+export const dynamic = 'force-dynamic';
+
 // GET: List all users (Admin only)
 export async function GET() {
   try {

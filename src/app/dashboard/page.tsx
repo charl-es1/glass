@@ -194,7 +194,7 @@ export default function StaffDashboard() {
     async function initData() {
       try {
         // 1. Fetch current user
-        const userRes = await fetch('/api/auth/me');
+        const userRes = await fetch('/api/auth/me', { cache: 'no-store' });
         if (!userRes.ok) {
           router.push('/login');
           return;
@@ -208,7 +208,7 @@ export default function StaffDashboard() {
         }
 
         // 2. Fetch Glass Types
-        const gtRes = await fetch('/api/glass-types');
+        const gtRes = await fetch('/api/glass-types', { cache: 'no-store' });
         if (gtRes.ok) {
           const gtData = await gtRes.json();
           setGlassTypes(gtData);
@@ -218,7 +218,7 @@ export default function StaffDashboard() {
         }
 
         // 3. Fetch User Quotes
-        const quotesRes = await fetch('/api/quotes');
+        const quotesRes = await fetch('/api/quotes', { cache: 'no-store' });
         if (quotesRes.ok) {
           const quotesData = await quotesRes.json();
           setQuotes(quotesData);
@@ -251,9 +251,9 @@ export default function StaffDashboard() {
     setInvoicesLoading(true);
     try {
       const [invRes, custRes, quotesRes] = await Promise.all([
-        fetch('/api/invoices'),
-        fetch('/api/admin/customers'),
-        fetch('/api/quotes'),
+        fetch('/api/invoices', { cache: 'no-store' }),
+        fetch('/api/admin/customers', { cache: 'no-store' }),
+        fetch('/api/quotes', { cache: 'no-store' }),
       ]);
 
       if (invRes.ok) setInvoices(await invRes.json());
@@ -577,7 +577,7 @@ export default function StaffDashboard() {
       setVisualizedItem(null);
 
       // Refresh quotes list
-      const quotesRes = await fetch('/api/quotes');
+      const quotesRes = await fetch('/api/quotes', { cache: 'no-store' });
       if (quotesRes.ok) {
         const quotesData = await quotesRes.json();
         setQuotes(quotesData);

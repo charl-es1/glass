@@ -3,6 +3,8 @@ import prisma from '@/lib/db';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
+export const dynamic = 'force-dynamic';
+
 // GET: Retrieve a specific invoice by ID
 export async function GET(
   request: Request,

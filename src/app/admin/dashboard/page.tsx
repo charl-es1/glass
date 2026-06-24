@@ -144,7 +144,7 @@ export default function AdminDashboard() {
   const fetchLogs = async () => {
     setLogsLoading(true);
     try {
-      const res = await fetch('/api/admin/logs');
+      const res = await fetch('/api/admin/logs', { cache: 'no-store' });
       if (res.ok) {
         setLogs(await res.json());
       } else {
@@ -167,8 +167,8 @@ export default function AdminDashboard() {
       if (reportEndDate) params.append('endDate', reportEndDate);
 
       const [reportsRes, customersRes] = await Promise.all([
-        fetch(`/api/admin/reports?${params.toString()}`),
-        fetch('/api/admin/customers'),
+        fetch(`/api/admin/reports?${params.toString()}`, { cache: 'no-store' }),
+        fetch('/api/admin/customers', { cache: 'no-store' }),
       ]);
 
       if (reportsRes.ok) {
@@ -194,8 +194,8 @@ export default function AdminDashboard() {
       if (filterSecurityStatus) params.append('status', filterSecurityStatus);
 
       const [logsRes, verificationsRes] = await Promise.all([
-        fetch(`/api/security/logs?${params.toString()}`),
-        fetch('/api/security/verify'),
+        fetch(`/api/security/logs?${params.toString()}`, { cache: 'no-store' }),
+        fetch('/api/security/verify', { cache: 'no-store' }),
       ]);
 
       if (logsRes.ok) setSecurityLogs(await logsRes.json());
@@ -235,10 +235,10 @@ export default function AdminDashboard() {
   const loadAllData = async () => {
     try {
       const [metricsRes, gtRes, usersRes, quotesRes] = await Promise.all([
-        fetch('/api/admin/metrics'),
-        fetch('/api/glass-types'),
-        fetch('/api/admin/users'),
-        fetch('/api/admin/quotes'),
+        fetch('/api/admin/metrics', { cache: 'no-store' }),
+        fetch('/api/glass-types', { cache: 'no-store' }),
+        fetch('/api/admin/users', { cache: 'no-store' }),
+        fetch('/api/admin/quotes', { cache: 'no-store' }),
       ]);
 
       if (metricsRes.ok) setMetrics(await metricsRes.json());
@@ -265,7 +265,7 @@ export default function AdminDashboard() {
     async function initAdmin() {
       try {
         // 1. Verify admin identity
-        const meRes = await fetch('/api/auth/me');
+        const meRes = await fetch('/api/auth/me', { cache: 'no-store' });
         if (!meRes.ok) {
           router.push('/login');
           return;
@@ -580,7 +580,7 @@ export default function AdminDashboard() {
       let fullInvoice = invoice;
       if (!invoice.line_items || invoice.line_items.length === 0) {
         setReportsLoading(true);
-        const res = await fetch(`/api/invoices/${invoice.id}`);
+        const res = await fetch(`/api/invoices/${invoice.id}`, { cache: 'no-store' });
         setReportsLoading(false);
         if (res.ok) {
           fullInvoice = await res.json();

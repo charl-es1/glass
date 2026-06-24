@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { getAuthUser } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 // GET: Retrieve aggregated financial reporting metrics (Admin only)
 export async function GET(request: Request) {
   try {

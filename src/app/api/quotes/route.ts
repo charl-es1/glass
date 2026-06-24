@@ -3,6 +3,8 @@ import prisma from '@/lib/db';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
+export const dynamic = 'force-dynamic';
+
 // GET: Retrieve quotes for the currently logged-in user
 export async function GET() {
   try {
