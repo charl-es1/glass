@@ -128,7 +128,10 @@ export default function StaffDashboard() {
   const [dispatchVehicleNo, setDispatchVehicleNo] = useState('');
   const [dispatchInvoice, setDispatchInvoice] = useState<Invoice | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [dueDateInput, setDueDateInput] = useState('');
+  const [dueDateInput, setDueDateInput] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [taxInput, setTaxInput] = useState('0.00');
   const [invoiceDiscountInput, setInvoiceDiscountInput] = useState('');
   const [selectedQuoteIds, setSelectedQuoteIds] = useState<string[]>([]);
@@ -346,7 +349,7 @@ export default function StaffDashboard() {
       setInvoiceFormOpen(false);
       
       setSelectedCustomerId('');
-      setDueDateInput('');
+      setDueDateInput(new Date().toISOString().split('T')[0]);
       setTaxInput('0.00');
       setInvoiceDiscountInput('');
       setSelectedQuoteIds([]);
