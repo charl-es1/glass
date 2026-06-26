@@ -25,10 +25,10 @@ interface GlassType {
 interface Quote {
   id: string;
   user_id: string;
-  glass_type_id: string;
-  length: number;
-  width: number;
-  thickness: number;
+  glass_type_id: string | null;
+  length: number | null;
+  width: number | null;
+  thickness: number | null;
   area: number;
   total_price: number;
   created_at: string;
@@ -41,7 +41,8 @@ interface Quote {
     id: string;
     name: string;
     price_per_sqm: number;
-  };
+  } | null;
+  items_json?: string | null;
 }
 
 interface DashboardMetrics {
@@ -534,7 +535,7 @@ export default function AdminDashboard() {
     if (sortBy === 'price') {
       return (a.total_price - b.total_price) * factor;
     } else if (sortBy === 'area') {
-      return (a.area - b.area) * factor;
+      return ((a.area ?? 0) - (b.area ?? 0)) * factor;
     } else {
       return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * factor;
     }
@@ -548,11 +549,15 @@ export default function AdminDashboard() {
         q.id,
         new Date(q.created_at).toLocaleString(),
         q.user.name,
-        q.glass_type.name,
-        q.length.toFixed(2),
-        q.width.toFixed(2),
-        (q.thickness || 6.0).toFixed(1),
-        q.area.toFixed(2),
+        q.items_json
+          ? Array.from(new Set(JSON.parse(q.items_json).map((item: any) => item.glass_type_name))).join(' | ')
+          : (q.glass_type?.name || 'N/A'),
+        q.items_json ? 'Grouped' : (q.length?.toFixed(2) || 'N/A'),
+        q.items_json ? 'Grouped' : (q.width?.toFixed(2) || 'N/A'),
+        q.items_json
+          ? JSON.parse(q.items_json).map((item: any) => item.thickness.toFixed(1)).join(' | ')
+          : (q.thickness || 6.0).toFixed(1),
+        (q.area ?? 0).toFixed(2),
         q.total_price.toFixed(2),
       ]);
 
@@ -1547,9 +1552,29 @@ export default function AdminDashboard() {
                               {q.user.email}
                             </span>
                           </td>
-                          <td>{q.glass_type.name}</td>
-                          <td>{q.length.toFixed(2)}m × {q.width.toFixed(2)}m × {(q.thickness || 6.0).toFixed(1)}mm</td>
-                          <td>{q.area.toFixed(2)} m²</td>
+                          <td>
+                            {q.items_json ? (
+                              <span style={{ fontSize: '0.85rem' }}>
+                                {Array.from(new Set(JSON.parse(q.items_json).map((item: any) => item.glass_type_name))).join(', ')}
+                              </span>
+                            ) : (
+                              q.glass_type?.name || 'N/A'
+                            )}
+                          </td>
+                          <td>
+                            {q.items_json ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                {JSON.parse(q.items_json).map((item: any, idx: number) => (
+                                  <div key={idx}>
+                                    {item.length.toFixed(2)}m × {item.width.toFixed(2)}m × {item.thickness.toFixed(1)}mm
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              (q.length !== null && q.width !== null) ? `${q.length.toFixed(2)}m × ${q.width.toFixed(2)}m × ${(q.thickness || 6.0).toFixed(1)}mm` : 'N/A'
+                            )}
+                          </td>
+                          <td>{(q.area ?? 0).toFixed(2)} m²</td>
                           <td style={{ color: 'var(--success)', fontWeight: 600 }}>
                             {q.total_price.toFixed(2)} GHS
                           </td>

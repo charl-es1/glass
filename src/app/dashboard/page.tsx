@@ -1610,7 +1610,7 @@ export default function StaffDashboard() {
                             )}
                           </td>
                           <td>
-                            {q.area.toFixed(2)} m²
+                            {(q.area ?? 0).toFixed(2)} m²
                           </td>
                           <td style={{ color: 'var(--primary)', fontWeight: 600 }}>
                             {q.total_price.toFixed(2)} GHS

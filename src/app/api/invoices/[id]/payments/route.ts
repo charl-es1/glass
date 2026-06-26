@@ -33,10 +33,28 @@ export async function POST(
       );
     }
 
-    const invoice = await prisma.invoice.findUnique({
+    let invoice = await prisma.invoice.findUnique({
       where: { id },
       include: { customer: true },
     });
+
+    if (!invoice) {
+      invoice = await prisma.invoice.findFirst({
+        where: {
+          OR: [
+            { invoice_no: id },
+            {
+              line_items: {
+                some: {
+                  quote_id: id,
+                },
+              },
+            },
+          ],
+        },
+        include: { customer: true },
+      });
+    }
 
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
@@ -65,7 +83,7 @@ export async function POST(
       const bill = await tx.bill.create({
         data: {
           receipt_no: receiptNo,
-          invoice_id: id,
+          invoice_id: invoice.id,
           amount_paid: paymentAmount,
           payment_method: paymentMethod,
           notes: notes || null,
@@ -86,7 +104,7 @@ export async function POST(
 
       // 3. Update the invoice status
       const updatedInvoice = await tx.invoice.update({
-        where: { id },
+        where: { id: invoice.id },
         data: {
           amount_paid: newAmountPaid,
           balance_due: newBalanceDue,

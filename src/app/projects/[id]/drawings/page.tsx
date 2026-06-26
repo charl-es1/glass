@@ -69,6 +69,38 @@ export default async function DrawingsPage({ params }: DrawingsPageProps) {
         bills: true,
       },
     });
+
+    if (!invoice) {
+      invoice = await prisma.invoice.findFirst({
+        where: {
+          OR: [
+            { invoice_no: id },
+            {
+              line_items: {
+                some: {
+                  quote_id: id,
+                },
+              },
+            },
+          ],
+        },
+        include: {
+          customer: true,
+          line_items: {
+            include: {
+              glass_type: {
+                select: {
+                  id: true,
+                  name: true,
+                  price_per_sqm: true,
+                },
+              },
+            },
+          },
+          bills: true,
+        },
+      });
+    }
   } catch (error) {
     console.error('Error fetching invoice details for drawings page:', error);
   }

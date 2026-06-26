@@ -18,7 +18,7 @@ export async function GET(
 
     const { id } = await params;
 
-    const invoice = await prisma.invoice.findUnique({
+    let invoice = await prisma.invoice.findUnique({
       where: { id },
       include: {
         customer: true,
@@ -33,6 +33,35 @@ export async function GET(
         },
       },
     });
+
+    if (!invoice) {
+      invoice = await prisma.invoice.findFirst({
+        where: {
+          OR: [
+            { invoice_no: id },
+            {
+              line_items: {
+                some: {
+                  quote_id: id,
+                },
+              },
+            },
+          ],
+        },
+        include: {
+          customer: true,
+          user: { select: { id: true, name: true, email: true } },
+          line_items: {
+            include: {
+              glass_type: { select: { id: true, name: true, price_per_sqm: true } },
+            },
+          },
+          bills: {
+            orderBy: { payment_date: 'desc' },
+          },
+        },
+      });
+    }
 
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
@@ -63,9 +92,26 @@ export async function PUT(
     const body = await request.json();
     const { driver_name, vehicle_no, status } = body;
 
-    const invoice = await prisma.invoice.findUnique({
+    let invoice = await prisma.invoice.findUnique({
       where: { id },
     });
+
+    if (!invoice) {
+      invoice = await prisma.invoice.findFirst({
+        where: {
+          OR: [
+            { invoice_no: id },
+            {
+              line_items: {
+                some: {
+                  quote_id: id,
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
 
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
@@ -77,7 +123,7 @@ export async function PUT(
     if (status !== undefined) updateData.status = status;
 
     const updatedInvoice = await prisma.invoice.update({
-      where: { id },
+      where: { id: invoice.id },
       data: updateData,
     });
 
