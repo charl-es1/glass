@@ -107,8 +107,17 @@ export default function ProjectsDrawingsClient({
   const [height, setHeight] = useState<number>(initialType.defaultHeight);
   const [theme, setTheme] = useState<'classic' | 'blueprint' | 'dark'>('classic');
   const [paymentSimulating, setPaymentSimulating] = useState(false);
+  const [selectedItemIndex, setSelectedItemIndex] = useState<number>(0);
 
-  // Initialize values based on mockId templates or raw invoice
+  // Initialize category/subtype setup for invoice
+  useEffect(() => {
+    if (invoice && invoice.line_items && invoice.line_items.length > 0) {
+      setCategory('windows');
+      setSubType('casement_window');
+    }
+  }, [invoice]);
+
+  // Update width and height when item changes or mockId changes
   useEffect(() => {
     if (mockId) {
       if (mockId === 'ref1') {
@@ -133,18 +142,13 @@ export default function ProjectsDrawingsClient({
         setHeight(2200);
       }
     } else if (invoice) {
-      const item = invoice.line_items?.[0];
-      setCategory('windows');
-      setSubType('casement_window');
+      const item = invoice.line_items?.[selectedItemIndex];
       if (item) {
         setWidth(Math.round(item.width * 1000) || 800);
         setHeight(Math.round(item.length * 1000) || 1200);
-      } else {
-        setWidth(800);
-        setHeight(1200);
       }
     }
-  }, [mockId, invoice]);
+  }, [mockId, invoice, selectedItemIndex]);
 
   // Determine if payment is cleared
   const isPaid = invoice ? ['paid', 'ready_for_dispatch', 'dispatched'].includes(invoice.status) : true;
@@ -674,6 +678,30 @@ export default function ProjectsDrawingsClient({
           {/* A. Left Sidebar Controls */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
+            {/* Paid items dropdown */}
+            {invoice && invoice.line_items && invoice.line_items.length > 0 && (
+              <div className="card" style={{ padding: '20px' }}>
+                <h3 style={{ fontSize: '0.95rem', marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  Select Invoice Item
+                </h3>
+                <div className="form-group" style={{ marginBottom: '4px' }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Select Paid Spec</label>
+                  <select
+                    className="form-select"
+                    value={selectedItemIndex}
+                    onChange={(e) => setSelectedItemIndex(parseInt(e.target.value))}
+                    style={{ padding: '8px 12px', fontSize: '0.875rem' }}
+                  >
+                    {invoice.line_items.map((item, idx) => (
+                      <option key={item.id} value={idx}>
+                        Item {idx + 1}: {item.glass_type.name} ({Math.round(item.width * 1000)} x {Math.round(item.length * 1000)} mm)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {/* Drawing cascading selector component */}
             <DrawingSelector
               category={category}
@@ -682,6 +710,7 @@ export default function ProjectsDrawingsClient({
               height={height}
               theme={theme}
               catalog={catalog}
+              disabledDimensions={!!invoice}
               onChangeCategory={setCategory}
               onChangeSubType={setSubType}
               onChangeWidth={setWidth}

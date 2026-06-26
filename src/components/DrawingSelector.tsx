@@ -58,6 +58,7 @@ interface DrawingSelectorProps {
   height: number;
   theme: 'classic' | 'blueprint' | 'dark';
   catalog?: ProductCategory[];
+  disabledDimensions?: boolean;
   onChangeCategory: (cat: string) => void;
   onChangeSubType: (type: string) => void;
   onChangeWidth: (w: number) => void;
@@ -72,6 +73,7 @@ export default function DrawingSelector({
   height,
   theme,
   catalog,
+  disabledDimensions = false,
   onChangeCategory,
   onChangeSubType,
   onChangeWidth,
@@ -162,8 +164,15 @@ export default function DrawingSelector({
             type="number"
             className="form-input"
             value={width}
+            disabled={disabledDimensions}
             onChange={(e) => onChangeWidth(Math.max(100, parseInt(e.target.value) || 0))}
-            style={{ padding: '6px 10px', fontSize: '0.9rem' }}
+            style={{
+              padding: '6px 10px',
+              fontSize: '0.9rem',
+              opacity: disabledDimensions ? 0.65 : 1,
+              cursor: disabledDimensions ? 'not-allowed' : 'auto',
+              backgroundColor: disabledDimensions ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
+            }}
           />
         </div>
         <div className="form-group" style={{ marginBottom: '4px' }}>
@@ -172,10 +181,25 @@ export default function DrawingSelector({
             type="number"
             className="form-input"
             value={height}
+            disabled={disabledDimensions}
             onChange={(e) => onChangeHeight(Math.max(100, parseInt(e.target.value) || 0))}
-            style={{ padding: '6px 10px', fontSize: '0.9rem' }}
+            style={{
+              padding: '6px 10px',
+              fontSize: '0.9rem',
+              opacity: disabledDimensions ? 0.65 : 1,
+              cursor: disabledDimensions ? 'not-allowed' : 'auto',
+              backgroundColor: disabledDimensions ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
+            }}
           />
         </div>
+        {disabledDimensions && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '12px', display: 'flex', gap: '6px', alignItems: 'center', fontWeight: 500 }}>
+            <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            Locked to Paid Specifications
+          </div>
+        )}
       </div>
 
       {/* 3. Theme Selector Panel */}
