@@ -114,7 +114,20 @@ export default function StaffDashboard() {
   const [success, setSuccess] = useState('');
 
 
-  const [activeTab, setActiveTab] = useState<'calculator' | 'invoices'>('calculator');
+  const [activeTab, setActiveTabState] = useState<'calculator' | 'invoices'>('calculator');
+
+  useEffect(() => {
+    const savedTab = localStorage.getItem('dashboard_active_tab');
+    if (savedTab === 'calculator' || savedTab === 'invoices') {
+      setActiveTabState(savedTab);
+    }
+  }, []);
+
+  const setActiveTab = (tab: 'calculator' | 'invoices') => {
+    setActiveTabState(tab);
+    localStorage.setItem('dashboard_active_tab', tab);
+  };
+
   const [invoiceViewTab, setInvoiceViewTab] = useState<'active' | 'paid'>('active');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -226,6 +239,14 @@ export default function StaffDashboard() {
           const quotesData = await quotesRes.json();
           setQuotes(quotesData);
         }
+
+        // 4. Fetch Invoices and Customers
+        const [invRes, custRes] = await Promise.all([
+          fetch('/api/invoices', { cache: 'no-store' }),
+          fetch('/api/admin/customers', { cache: 'no-store' }),
+        ]);
+        if (invRes.ok) setInvoices(await invRes.json());
+        if (custRes.ok) setCustomers(await custRes.json());
       } catch (err) {
         console.error('Failed to load initial data:', err);
         setError('Error initializing dashboard. Please refresh.');
