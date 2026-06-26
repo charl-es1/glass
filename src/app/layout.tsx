@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import IdleTimeout from "@/components/IdleTimeout";
 
 export const metadata: Metadata = {
   title: "Glass Cutting Calculator & Management System",
@@ -14,6 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <IdleTimeout />
         {children}
       </body>
     </html>
