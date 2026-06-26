@@ -1659,7 +1659,7 @@ export default function StaffDashboard() {
                 </button>
                 <button className="btn btn-primary" onClick={() => {
                   setInvoiceFormOpen(true);
-                  setCustomLineItems([{ glassTypeId: glassTypes[0]?.id || '', length: '', width: '', thickness: '6.0', quantity: '1' }]);
+                  setCustomLineItems([]);
                 }}>
                   Create Invoice
                 </button>
@@ -2046,6 +2046,7 @@ export default function StaffDashboard() {
                           updated[idx].length = e.target.value;
                           setCustomLineItems(updated);
                         }}
+                        required
                       />
                       <input
                         type="number"
@@ -2059,6 +2060,7 @@ export default function StaffDashboard() {
                           updated[idx].width = e.target.value;
                           setCustomLineItems(updated);
                         }}
+                        required
                       />
                       <input
                         type="number"
@@ -2072,6 +2074,7 @@ export default function StaffDashboard() {
                           updated[idx].thickness = e.target.value;
                           setCustomLineItems(updated);
                         }}
+                        required
                       />
                       <input
                         type="number"
@@ -2084,6 +2087,7 @@ export default function StaffDashboard() {
                           updated[idx].quantity = e.target.value;
                           setCustomLineItems(updated);
                         }}
+                        required
                       />
                       <button
                         type="button"
