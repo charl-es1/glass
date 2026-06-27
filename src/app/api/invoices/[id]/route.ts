@@ -39,6 +39,7 @@ export async function GET(
         where: {
           OR: [
             { invoice_no: id },
+            { invoice_no: id.toUpperCase() },
             {
               line_items: {
                 some: {
@@ -101,6 +102,7 @@ export async function PUT(
         where: {
           OR: [
             { invoice_no: id },
+            { invoice_no: id.toUpperCase() },
             {
               line_items: {
                 some: {
@@ -120,7 +122,15 @@ export async function PUT(
     const updateData: any = {};
     if (driver_name !== undefined) updateData.driver_name = driver_name;
     if (vehicle_no !== undefined) updateData.vehicle_no = vehicle_no;
-    if (status !== undefined) updateData.status = status;
+    if (status !== undefined) {
+      if (status === 'ready_for_dispatch' && invoice.status !== 'paid' && invoice.balance_due > 0.01) {
+        return NextResponse.json(
+          { error: 'Invoice must be fully paid before preparing for dispatch.' },
+          { status: 400 }
+        );
+      }
+      updateData.status = status;
+    }
 
     const updatedInvoice = await prisma.invoice.update({
       where: { id: invoice.id },

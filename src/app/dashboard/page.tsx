@@ -114,14 +114,15 @@ export default function StaffDashboard() {
   const [success, setSuccess] = useState('');
 
 
-  const [activeTab, setActiveTabState] = useState<'calculator' | 'invoices'>('calculator');
-
-  useEffect(() => {
-    const savedTab = localStorage.getItem('dashboard_active_tab');
-    if (savedTab === 'calculator' || savedTab === 'invoices') {
-      setActiveTabState(savedTab);
+  const [activeTab, setActiveTabState] = useState<'calculator' | 'invoices'>(() => {
+    if (typeof window !== 'undefined') {
+      const savedTab = localStorage.getItem('dashboard_active_tab');
+      if (savedTab === 'calculator' || savedTab === 'invoices') {
+        return savedTab;
+      }
     }
-  }, []);
+    return 'calculator';
+  });
 
   const setActiveTab = (tab: 'calculator' | 'invoices') => {
     setActiveTabState(tab);
@@ -1814,7 +1815,7 @@ export default function StaffDashboard() {
                                   Pay
                                 </button>
                               )}
-                              {(inv.status === 'paid' || inv.status === 'partially_paid' || inv.status === 'unpaid') && (
+                              {inv.status === 'paid' && (
                                 <button
                                   className="btn btn-secondary"
                                   style={{ padding: '6px 10px', fontSize: '0.8rem', borderColor: 'var(--primary)', color: 'var(--primary)' }}

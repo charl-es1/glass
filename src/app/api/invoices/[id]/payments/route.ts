@@ -43,6 +43,7 @@ export async function POST(
         where: {
           OR: [
             { invoice_no: id },
+            { invoice_no: id.toUpperCase() },
             {
               line_items: {
                 some: {

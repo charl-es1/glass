@@ -75,6 +75,7 @@ export default async function DrawingsPage({ params }: DrawingsPageProps) {
         where: {
           OR: [
             { invoice_no: id },
+            { invoice_no: id.toUpperCase() },
             {
               line_items: {
                 some: {
