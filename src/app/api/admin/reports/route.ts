@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -22,101 +22,110 @@ export async function GET(request: Request) {
     const startDate = searchParams.get('startDate') || undefined;
     const endDate = searchParams.get('endDate') || undefined;
 
-    // Build invoice filter
-    const invoiceWhere: any = {};
+    // Fetch all invoices & customers to perform in-memory filter & aggregates
+    const invoicesSnap = await adminDb.collection('invoices').get();
+    const customersSnap = await adminDb.collection('customers').get();
+    const custMap = new Map(customersSnap.docs.map((doc: any) => [doc.id, { id: doc.id, ...doc.data() }]));
+
+    let invoices = invoicesSnap.docs.map((doc: any) => {
+      const inv = doc.data();
+      return {
+        id: doc.id,
+        ...inv,
+        customer: custMap.get(inv.customer_id) || null,
+      } as any;
+    });
+
+    // Apply filters to invoices
     if (customerId) {
-      invoiceWhere.customer_id = customerId;
+      invoices = invoices.filter((inv: any) => inv.customer_id === customerId);
     }
     if (status) {
-      invoiceWhere.status = status;
+      invoices = invoices.filter((inv: any) => inv.status === status);
+    } else {
+      // Exclude cancelled invoices from standard revenue stats unless explicitly filtered for
+      invoices = invoices.filter((inv: any) => inv.status !== 'cancelled');
     }
-    if (startDate || endDate) {
-      invoiceWhere.issue_date = {};
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        invoiceWhere.issue_date.gte = start;
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      invoices = invoices.filter((inv: any) => new Date(inv.issue_date) >= start);
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      invoices = invoices.filter((inv: any) => new Date(inv.issue_date) <= end);
+    }
+
+    // Sort invoices by created_at desc
+    invoices.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    const totalInvoiced = invoices.reduce((sum: number, inv: any) => sum + (inv.total_amount || 0), 0);
+
+    // Build bills list from invoices
+    const bills: any[] = [];
+    const allInvoices = invoicesSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }) as any);
+
+    for (const inv of allInvoices) {
+      if (inv.status === 'cancelled') continue;
+      if (customerId && inv.customer_id !== customerId) continue;
+
+      const customer = custMap.get(inv.customer_id) || null;
+      const invBills = inv.bills || [];
+
+      for (const b of invBills) {
+        const pDate = new Date(b.payment_date);
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          if (pDate < start) continue;
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          if (pDate > end) continue;
+        }
+
+        bills.push({
+          ...b,
+          invoice: {
+            ...inv,
+            customer,
+          },
+        });
       }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        invoiceWhere.issue_date.lte = end;
-      }
     }
 
-    // Exclude cancelled invoices from standard revenue stats unless explicitly filtered for
-    const baseInvoiceWhere = { ...invoiceWhere };
-    if (!status) {
-      baseInvoiceWhere.status = { not: 'cancelled' };
-    }
+    // Sort bills by payment_date desc
+    bills.sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime());
 
-    const invoices = await prisma.invoice.findMany({
-      where: baseInvoiceWhere,
-      include: { customer: true },
-      orderBy: { created_at: 'desc' },
-    });
-
-    const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.total_amount, 0);
-
-    // Build bills filter
-    const billWhere: any = {};
-    if (customerId) {
-      billWhere.invoice = { customer_id: customerId };
-    }
-    if (startDate || endDate) {
-      billWhere.payment_date = {};
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        billWhere.payment_date.gte = start;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        billWhere.payment_date.lte = end;
-      }
-    }
-
-    // Don't include payments made against cancelled invoices
-    billWhere.invoice = {
-      ...(billWhere.invoice || {}),
-      status: { not: 'cancelled' },
-    };
-
-    const bills = await prisma.bill.findMany({
-      where: billWhere,
-      include: {
-        invoice: {
-          include: { customer: true },
-        },
-      },
-      orderBy: { payment_date: 'desc' },
-    });
-
-    const totalReceived = bills.reduce((sum, b) => sum + b.amount_paid, 0);
+    const totalReceived = bills.reduce((sum: number, b: any) => sum + b.amount_paid, 0);
     const outstandingBalance = Math.max(0, totalInvoiced - totalReceived);
 
     // Top Customers analysis
     const customerAggregationMap: Record<string, { name: string; invoiced: number; received: number }> = {};
+
     for (const inv of invoices) {
       const cId = inv.customer_id;
       if (!customerAggregationMap[cId]) {
         customerAggregationMap[cId] = {
-          name: inv.customer.name,
+          name: inv.customer?.name || 'Unknown',
           invoiced: 0,
           received: 0,
         };
       }
       customerAggregationMap[cId].invoiced += inv.total_amount;
     }
+
     for (const b of bills) {
       const cId = b.invoice.customer_id;
       if (customerAggregationMap[cId]) {
         customerAggregationMap[cId].received += b.amount_paid;
       }
     }
+
     const topCustomers = Object.values(customerAggregationMap)
-      .sort((a, b) => b.invoiced - a.invoiced)
+      .sort((a: any, b: any) => b.invoiced - a.invoiced)
       .slice(0, 5);
 
     return NextResponse.json({

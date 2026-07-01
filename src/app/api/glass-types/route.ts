@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
@@ -13,9 +13,11 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const glassTypes = await prisma.glassType.findMany({
-      orderBy: { name: 'asc' },
-    });
+    const snap = await adminDb.collection('glass_types').orderBy('name', 'asc').get();
+    const glassTypes = snap.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
 
     return NextResponse.json(glassTypes);
   } catch (error) {
@@ -58,23 +60,28 @@ export async function POST(request: Request) {
     }
 
     // Check if name already exists
-    const existing = await prisma.glassType.findUnique({
-      where: { name },
-    });
+    const existingSnap = await adminDb
+      .collection('glass_types')
+      .where('name', '==', name)
+      .limit(1)
+      .get();
 
-    if (existing) {
+    if (!existingSnap.empty) {
       return NextResponse.json(
         { error: 'Glass type with this name already exists' },
         { status: 400 }
       );
     }
 
-    const newGlassType = await prisma.glassType.create({
-      data: {
-        name,
-        price_per_sqm: price,
-      },
-    });
+    const docRef = adminDb.collection('glass_types').doc();
+    const newGlassType = {
+      id: docRef.id,
+      name,
+      price_per_sqm: price,
+      updated_at: new Date().toISOString(),
+    };
+
+    await docRef.set(newGlassType);
 
     // Log CREATE_GLASS_TYPE activity
     await logActivity(

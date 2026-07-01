@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import prisma from '@/lib/db';
-import { signToken } from '@/lib/auth';
+import { adminDb } from '@/lib/firebase-admin';
+import { signToken, ensureDbSeeded } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
 export async function POST(request: Request) {
   try {
+    await ensureDbSeeded();
     const body = await request.json();
     const { email, password } = body;
 
@@ -16,17 +17,22 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find user in DB
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
+    // Find user in Firestore
+    const userQuery = await adminDb
+      .collection('users')
+      .where('email', '==', email)
+      .limit(1)
+      .get();
 
-    if (!user) {
+    if (userQuery.empty) {
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
+
+    const userDoc = userQuery.docs[0]!;
+    const user = { id: userDoc.id, ...userDoc.data() } as any;
 
     if (user.status !== 'active') {
       return NextResponse.json(

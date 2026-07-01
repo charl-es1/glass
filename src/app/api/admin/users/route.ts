@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
@@ -18,20 +18,29 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        created_at: true,
+    const usersSnap = await adminDb.collection('users').orderBy('name', 'asc').get();
+    const users = [];
+
+    for (const doc of usersSnap.docs) {
+      const data = doc.data();
+      const quotesCountSnap = await adminDb
+        .collection('quotes')
+        .where('user_id', '==', doc.id)
+        .count()
+        .get();
+
+      users.push({
+        id: doc.id,
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        status: data.status,
+        created_at: data.created_at,
         _count: {
-          select: { quotes: true },
+          quotes: quotesCountSnap.data().count,
         },
-      },
-      orderBy: { name: 'asc' },
-    });
+      });
+    }
 
     return NextResponse.json(users);
   } catch (error) {
@@ -80,11 +89,13 @@ export async function POST(request: Request) {
     }
 
     // Check if email already exists
-    const existing = await prisma.user.findUnique({
-      where: { email },
-    });
+    const existingSnap = await adminDb
+      .collection('users')
+      .where('email', '==', email)
+      .limit(1)
+      .get();
 
-    if (existing) {
+    if (!existingSnap.empty) {
       return NextResponse.json(
         { error: 'User with this email already exists' },
         { status: 400 }
@@ -94,23 +105,18 @@ export async function POST(request: Request) {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const newUser = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password_hash: passwordHash,
-        role,
-        status,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        created_at: true,
-      },
-    });
+    const userRef = adminDb.collection('users').doc();
+    const newUser = {
+      id: userRef.id,
+      name,
+      email,
+      password_hash: passwordHash,
+      role,
+      status,
+      created_at: new Date().toISOString(),
+    };
+
+    await userRef.set(newUser);
 
     // Log CREATE_USER activity
     await logActivity(
@@ -121,7 +127,10 @@ export async function POST(request: Request) {
       `Registered new user account: ${newUser.name} (${newUser.email}), Role: ${newUser.role}`
     );
 
-    return NextResponse.json(newUser, { status: 201 });
+    // Exclude password_hash in response
+    const { password_hash, ...responseUser } = newUser;
+
+    return NextResponse.json(responseUser, { status: 201 });
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(

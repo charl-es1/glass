@@ -1,7 +1,19 @@
 import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
+import { initializeFirebaseDatabase } from './firebase-seed';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'glass-cutting-secret-key-12345';
+
+export let dbSeeded = false;
+export async function ensureDbSeeded() {
+  if (!dbSeeded) {
+    dbSeeded = true;
+    await initializeFirebaseDatabase().catch(err => {
+      console.error('Lazy Firebase seeding failed:', err);
+      dbSeeded = false; // Reset so that it retries on subsequent requests
+    });
+  }
+}
 
 export interface UserTokenPayload {
   id: string;
@@ -24,6 +36,7 @@ export function verifyToken(token: string): UserTokenPayload | null {
 
 export async function getAuthUser(): Promise<UserTokenPayload | null> {
   try {
+    await ensureDbSeeded();
     const cookieStore = await cookies();
     const token = cookieStore.get('token')?.value;
     if (!token) return null;

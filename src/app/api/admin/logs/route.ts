@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -16,10 +16,16 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const logs = await prisma.activityLog.findMany({
-      orderBy: { created_at: 'desc' },
-      take: 200,
-    });
+    const logsSnap = await adminDb
+      .collection('activity_logs')
+      .orderBy('created_at', 'desc')
+      .limit(200)
+      .get();
+
+    const logs = logsSnap.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
 
     return NextResponse.json(logs);
   } catch (error) {

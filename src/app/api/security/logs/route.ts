@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,6 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     const user = await getAuthUser();
-    // Managers (admin / supervisor) can view the logs
     if (!user || (user.role !== 'admin' && user.role !== 'supervisor')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -20,60 +19,64 @@ export async function GET(request: Request) {
     const startDate = searchParams.get('start_date');
     const endDate = searchParams.get('end_date');
 
-    const whereClause: any = {};
+    const invoicesSnap = await adminDb.collection('invoices').get();
+    const logs: any[] = [];
+
+    invoicesSnap.docs.forEach((doc: any) => {
+      const inv = doc.data();
+      if (inv.security_verification && inv.security_verification.logs) {
+        inv.security_verification.logs.forEach((log: any) => {
+          logs.push({
+            ...log,
+            verification: {
+              ...inv.security_verification,
+              invoice: {
+                id: doc.id,
+                invoice_no: inv.invoice_no,
+                driver_name: inv.driver_name,
+                vehicle_no: inv.vehicle_no,
+                status: inv.status,
+              },
+            },
+          });
+        });
+      }
+    });
+
+    let filteredLogs = [...logs];
 
     if (officerName) {
-      whereClause.officer_name = { contains: officerName };
+      filteredLogs = filteredLogs.filter((l: any) => l.officer_name && l.officer_name.toLowerCase().includes(officerName.toLowerCase()));
     }
 
     if (action) {
-      whereClause.action = action;
+      filteredLogs = filteredLogs.filter((l: any) => l.action === action);
     }
 
-    // Filter by verification status or invoice_no
-    if (status || invoiceNo) {
-      whereClause.verification = {};
-      if (status) {
-        whereClause.verification.status = status;
-      }
-      if (invoiceNo) {
-        whereClause.verification.invoice = {
-          invoice_no: { contains: invoiceNo }
-        };
-      }
+    if (status) {
+      filteredLogs = filteredLogs.filter((l: any) => l.verification && l.verification.status === status);
     }
 
-    if (startDate || endDate) {
-      whereClause.timestamp = {};
-      if (startDate) {
-        whereClause.timestamp.gte = new Date(startDate);
-      }
-      if (endDate) {
-        whereClause.timestamp.lte = new Date(endDate);
-      }
+    if (invoiceNo) {
+      filteredLogs = filteredLogs.filter(
+        (l: any) => l.verification && l.verification.invoice && l.verification.invoice.invoice_no.toLowerCase().includes(invoiceNo.toLowerCase())
+      );
     }
 
-    const logs = await prisma.securityLog.findMany({
-      where: whereClause,
-      include: {
-        verification: {
-          include: {
-            invoice: {
-              select: {
-                id: true,
-                invoice_no: true,
-                driver_name: true,
-                vehicle_no: true,
-                status: true,
-              }
-            }
-          }
-        }
-      },
-      orderBy: { timestamp: 'desc' },
-    });
+    if (startDate) {
+      const start = new Date(startDate);
+      filteredLogs = filteredLogs.filter((l: any) => new Date(l.timestamp) >= start);
+    }
 
-    return NextResponse.json(logs);
+    if (endDate) {
+      const end = new Date(endDate);
+      filteredLogs = filteredLogs.filter((l: any) => new Date(l.timestamp) <= end);
+    }
+
+    // Sort by timestamp desc
+    filteredLogs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return NextResponse.json(filteredLogs);
   } catch (error) {
     console.error('Error fetching security audit logs:', error);
     return NextResponse.json(

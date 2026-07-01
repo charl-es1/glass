@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
+// POST: Record security gate exit verification
 export async function POST(request: Request) {
   try {
     const user = await getAuthUser();
@@ -32,143 +33,133 @@ export async function POST(request: Request) {
       );
     }
 
-    // Pre-check for duplicate verification
-    const existing = await prisma.securityVerification.findUnique({
-      where: { invoice_id },
+    const invoiceRef = adminDb.collection('invoices').doc(invoice_id);
+    
+    // Execute inside a database transaction to prevent duplicates and race conditions
+    const result = await adminDb.runTransaction(async (transaction: any) => {
+      const invoiceSnap = await transaction.get(invoiceRef);
+      if (!invoiceSnap.exists) {
+        throw new Error('INVOICE_NOT_FOUND');
+      }
+      
+      const invoice = invoiceSnap.data()!;
+      if (invoice.security_verification) {
+        throw new Error('DUPLICATE_VERIFICATION');
+      }
+
+      // Generate clearance_ref: Count how many invoices already have a clearance_ref
+      const allInvoicesSnap = await transaction.get(adminDb.collection('invoices'));
+      let verifiedCount = 0;
+      allInvoicesSnap.docs.forEach((doc: any) => {
+        if (doc.data().security_verification) {
+          verifiedCount++;
+        }
+      });
+
+      let nextNum = 1001 + verifiedCount;
+      let clearance_ref = '';
+      let isUnique = false;
+
+      while (!isUnique) {
+        clearance_ref = `CLR-${nextNum}`;
+        const hasDuplicate = allInvoicesSnap.docs.some((doc: any) => {
+          const inv = doc.data();
+          return inv.security_verification && inv.security_verification.clearance_ref === clearance_ref;
+        });
+
+        if (!hasDuplicate) {
+          isUnique = true;
+        } else {
+          nextNum++;
+        }
+      }
+
+      // Build items
+      const checklistItems = (items || []).map((it: any) => ({
+        id: adminDb.collection('invoices').doc().id,
+        line_item_id: it.line_item_id,
+        glass_type_name: it.glass_type_name,
+        dimensions: it.dimensions,
+        quantity: Number(it.quantity || 1),
+        is_verified: !!it.is_verified,
+        is_flagged: !!it.is_flagged,
+        flag_notes: it.flag_notes || null,
+      }));
+
+      // Build logs
+      const verificationLogs = logs && Array.isArray(logs) 
+        ? logs.map((l: any) => ({
+            id: adminDb.collection('invoices').doc().id,
+            officer_name: user.name,
+            action: l.action,
+            details: l.details,
+            timestamp: new Date(l.timestamp || Date.now()).toISOString(),
+            is_offline: !!l.is_offline,
+          }))
+        : [{
+            id: adminDb.collection('invoices').doc().id,
+            officer_name: user.name,
+            action: 'SUBMIT',
+            details: `Verification submitted with status: ${status}`,
+            timestamp: new Date().toISOString(),
+            is_offline: false,
+          }];
+
+      const securityVerification = {
+        id: adminDb.collection('invoices').doc().id,
+        invoice_id,
+        officer_id: user.id,
+        officer_name: user.name,
+        signatory_name,
+        signature_data,
+        status,
+        notes: notes || null,
+        verified_at: new Date(verified_at || Date.now()).toISOString(),
+        is_offline: !!is_offline,
+        synced_at: new Date().toISOString(),
+        clearance_ref,
+        items: checklistItems,
+        logs: verificationLogs,
+      };
+
+      const finalStatus = status === 'dispatched' ? 'dispatched' : 'on_hold_discrepancy';
+
+      transaction.update(invoiceRef, {
+        status: finalStatus,
+        security_verification: securityVerification,
+      });
+
+      return { securityVerification, clearance_ref };
     });
-    if (existing) {
+
+    // Log activity to standard ActivityLog
+    await logActivity(
+      user.id,
+      user.email,
+      user.name,
+      'VERIFY_INVOICE',
+      `Officer verified invoice ${invoice_id} - status: ${status}, clearance: ${result.clearance_ref}`
+    );
+
+    return NextResponse.json({
+      success: true,
+      verification: result.securityVerification,
+      clearance_ref: result.clearance_ref,
+    });
+  } catch (error: any) {
+    console.error('Error recording security verification:', error);
+    if (error.message === 'DUPLICATE_VERIFICATION') {
       return NextResponse.json(
         { error: 'This invoice has already been verified' },
         { status: 400 }
       );
     }
-
-    try {
-      const result = await prisma.$transaction(async (tx) => {
-        // Double check duplicate in transaction
-        const existingTx = await tx.securityVerification.findUnique({
-          where: { invoice_id },
-        });
-        if (existingTx) {
-          throw new Error('DUPLICATE_VERIFICATION');
-        }
-
-        // Generate unique clearance_ref CLR-XXXX
-        const totalCount = await tx.securityVerification.count();
-        let nextNum = 1001 + totalCount;
-        let clearance_ref = '';
-        let isUnique = false;
-        while (!isUnique) {
-          clearance_ref = `CLR-${nextNum}`;
-          const duplicate = await tx.securityVerification.findUnique({
-            where: { clearance_ref },
-          });
-          if (!duplicate) {
-            isUnique = true;
-          } else {
-            nextNum++;
-          }
-        }
-
-        // Create SecurityVerification
-        const createdVerification = await tx.securityVerification.create({
-          data: {
-            invoice_id,
-            officer_id: user.id,
-            officer_name: user.name,
-            signatory_name,
-            signature_data,
-            status,
-            notes: notes || null,
-            verified_at: new Date(verified_at || Date.now()),
-            is_offline: !!is_offline,
-            synced_at: new Date(),
-            clearance_ref,
-          },
-        });
-
-        // Create checklist items
-        if (items && Array.isArray(items)) {
-          for (const item of items) {
-            await tx.securityVerificationItem.create({
-              data: {
-                verification_id: createdVerification.id,
-                line_item_id: item.line_item_id,
-                glass_type_name: item.glass_type_name,
-                dimensions: item.dimensions,
-                quantity: Number(item.quantity || 1),
-                is_verified: !!item.is_verified,
-                is_flagged: !!item.is_flagged,
-                flag_notes: item.flag_notes || null,
-              },
-            });
-          }
-        }
-
-        // Update Invoice status
-        // "dispatched" if clean (i.e. status is dispatched) or "on_hold_discrepancy" if not
-        const finalStatus = status === 'dispatched' ? 'dispatched' : 'on_hold_discrepancy';
-        await tx.invoice.update({
-          where: { id: invoice_id },
-          data: { status: finalStatus },
-        });
-
-        // Save audit logs
-        if (logs && Array.isArray(logs)) {
-          for (const log of logs) {
-            await tx.securityLog.create({
-              data: {
-                verification_id: createdVerification.id,
-                officer_name: user.name,
-                action: log.action,
-                details: log.details,
-                timestamp: new Date(log.timestamp || Date.now()),
-                is_offline: !!log.is_offline,
-              },
-            });
-          }
-        } else {
-          // If no offline logs passed, create a default submit log
-          await tx.securityLog.create({
-            data: {
-              verification_id: createdVerification.id,
-              officer_name: user.name,
-              action: 'SUBMIT',
-              details: `Verification submitted with status: ${status}`,
-              timestamp: new Date(),
-              is_offline: false,
-            },
-          });
-        }
-
-        return { createdVerification, clearance_ref };
-      });
-
-      // Log activity to standard ActivityLog
-      await logActivity(
-        user.id,
-        user.email,
-        user.name,
-        'VERIFY_INVOICE',
-        `Officer verified invoice ${invoice_id} - status: ${status}, clearance: ${result.clearance_ref}`
+    if (error.message === 'INVOICE_NOT_FOUND') {
+      return NextResponse.json(
+        { error: 'Invoice not found' },
+        { status: 404 }
       );
-
-      return NextResponse.json({
-        success: true,
-        verification: result.createdVerification,
-        clearance_ref: result.clearance_ref,
-      });
-    } catch (txErr: any) {
-      if (txErr.message === 'DUPLICATE_VERIFICATION') {
-        return NextResponse.json(
-          { error: 'This invoice has already been verified' },
-          { status: 400 }
-        );
-      }
-      throw txErr;
     }
-  } catch (error) {
-    console.error('Error recording security verification:', error);
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 }
@@ -176,6 +167,7 @@ export async function POST(request: Request) {
   }
 }
 
+// GET: Retrieve past verifications
 export async function GET() {
   try {
     const user = await getAuthUser();
@@ -183,24 +175,32 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const whereClause: any = {};
-    // Security role gets only their own checks, others (admin/supervisor) get all checks
-    if (user.role === 'security') {
-      whereClause.officer_id = user.id;
-    }
+    const invoicesSnap = await adminDb.collection('invoices').get();
+    const customersSnap = await adminDb.collection('customers').get();
+    const custMap = new Map(customersSnap.docs.map((doc: any) => [doc.id, { id: doc.id, ...doc.data() }]));
 
-    const verifications = await prisma.securityVerification.findMany({
-      where: whereClause,
-      include: {
-        invoice: {
-          include: {
-            customer: true,
+    const verifications: any[] = [];
+    invoicesSnap.docs.forEach((doc: any) => {
+      const inv = doc.data();
+      if (inv.security_verification) {
+        if (user.role === 'security' && inv.security_verification.officer_id !== user.id) {
+          return;
+        }
+
+        const customer = custMap.get(inv.customer_id) || null;
+        verifications.push({
+          ...inv.security_verification,
+          invoice: {
+            ...inv,
+            customer,
           },
-        },
-        items: true,
-      },
-      orderBy: { verified_at: 'desc' },
+          items: inv.security_verification.items || [],
+        });
+      }
     });
+
+    // Sort by verified_at desc
+    verifications.sort((a: any, b: any) => new Date(b.verified_at).getTime() - new Date(a.verified_at).getTime());
 
     return NextResponse.json(verifications);
   } catch (error) {

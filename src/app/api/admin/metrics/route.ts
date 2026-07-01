@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -15,64 +15,53 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    // Fetch all quotes
+    const quotesSnap = await adminDb.collection('quotes').get();
+    const quotes = quotesSnap.docs.map((doc: any) => doc.data());
+
     // 1. Total quotes generated
-    const totalQuotes = await prisma.quote.count();
+    const totalQuotes = quotes.length;
 
     // 2. Total estimated revenue
-    const revenueAggregate = await prisma.quote.aggregate({
-      _sum: {
-        total_price: true,
-      },
-    });
-    const totalRevenue = revenueAggregate._sum.total_price || 0;
+    const totalRevenue = quotes.reduce((sum: number, q: any) => sum + (q.total_price || 0), 0);
 
     // 3. Stats per Glass Type
-    const glassTypes = await prisma.glassType.findMany({
-      include: {
-        quotes: {
-          select: {
-            total_price: true,
-          },
-        },
-      },
-    });
-
-    const glassStats = glassTypes.map((gt) => {
-      const count = gt.quotes.length;
-      const revenue = gt.quotes.reduce((sum, q) => sum + q.total_price, 0);
-      return {
-        id: gt.id,
-        name: gt.name,
-        price_per_sqm: gt.price_per_sqm,
-        count,
-        revenue,
-      };
-    }).sort((a, b) => b.count - a.count); // sort by most frequent first
+    const glassTypesSnap = await adminDb.collection('glass_types').get();
+    const glassStats = glassTypesSnap.docs
+      .map((doc: any) => {
+        const gt = doc.data();
+        const gtQuotes = quotes.filter((q: any) => q.glass_type_id === doc.id);
+        const count = gtQuotes.length;
+        const revenue = gtQuotes.reduce((sum: number, q: any) => sum + (q.total_price || 0), 0);
+        return {
+          id: doc.id,
+          name: gt.name,
+          price_per_sqm: gt.price_per_sqm,
+          count,
+          revenue,
+        };
+      })
+      .sort((a: any, b: any) => b.count - a.count);
 
     // 4. Stats per User (Staff metrics)
-    const users = await prisma.user.findMany({
-      include: {
-        quotes: {
-          select: {
-            total_price: true,
-          },
-        },
-      },
-    });
-
-    const userStats = users.map((u) => {
-      const count = u.quotes.length;
-      const revenue = u.quotes.reduce((sum, q) => sum + q.total_price, 0);
-      return {
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        role: u.role,
-        status: u.status,
-        count,
-        revenue,
-      };
-    }).sort((a, b) => b.count - a.count);
+    const usersSnap = await adminDb.collection('users').get();
+    const userStats = usersSnap.docs
+      .map((doc: any) => {
+        const u = doc.data();
+        const uQuotes = quotes.filter((q: any) => q.user_id === doc.id);
+        const count = uQuotes.length;
+        const revenue = uQuotes.reduce((sum: number, q: any) => sum + (q.total_price || 0), 0);
+        return {
+          id: doc.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          status: u.status,
+          count,
+          revenue,
+        };
+      })
+      .sort((a: any, b: any) => b.count - a.count);
 
     return NextResponse.json({
       totalQuotes,

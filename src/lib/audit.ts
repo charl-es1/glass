@@ -1,7 +1,7 @@
-import prisma from './db';
+import { adminDb } from './firebase-admin';
 
 /**
- * Log an activity to the audit trails database.
+ * Log an activity to the audit trails database (Firestore).
  * Safeguarded with a try-catch block to prevent logging failures from crashing parent requests.
  */
 export async function logActivity(
@@ -12,14 +12,13 @@ export async function logActivity(
   details: string
 ) {
   try {
-    await prisma.activityLog.create({
-      data: {
-        user_id: userId,
-        user_email: email,
-        user_name: name,
-        action,
-        details,
-      },
+    await adminDb.collection('activity_logs').add({
+      user_id: userId,
+      user_email: email,
+      user_name: name,
+      action,
+      details,
+      created_at: new Date().toISOString(),
     });
   } catch (err) {
     console.error('Failed to log audit activity:', err);

@@ -1,9 +1,45 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
+
+// Helper function to find invoice by ID or human-readable number fallbacks
+async function findInvoiceByIdOrFallback(id: string) {
+  // 1. Try by document ID
+  const docRef = adminDb.collection('invoices').doc(id);
+  const docSnap = await docRef.get();
+  if (docSnap.exists) {
+    return { id: docSnap.id, ...docSnap.data() };
+  }
+
+  // 2. Try by exact invoice_no
+  const snapNo = await adminDb.collection('invoices').where('invoice_no', '==', id).limit(1).get();
+  if (!snapNo.empty) {
+    const doc = snapNo.docs[0]!;
+    return { id: doc.id, ...doc.data() };
+  }
+
+  // 3. Try by uppercase invoice_no
+  const snapUpper = await adminDb.collection('invoices').where('invoice_no', '==', id.toUpperCase()).limit(1).get();
+  if (!snapUpper.empty) {
+    const doc = snapUpper.docs[0]!;
+    return { id: doc.id, ...doc.data() };
+  }
+
+  // 4. Try by quote_id in line_items
+  const allSnap = await adminDb.collection('invoices').get();
+  for (const doc of allSnap.docs) {
+    const inv = doc.data();
+    const hasQuote = (inv.line_items || []).some((item: any) => item.quote_id === id);
+    if (hasQuote) {
+      return { id: doc.id, ...inv };
+    }
+  }
+
+  return null;
+}
 
 // GET: Retrieve a specific invoice by ID
 export async function GET(
@@ -17,56 +53,34 @@ export async function GET(
     }
 
     const { id } = await params;
-
-    let invoice = await prisma.invoice.findUnique({
-      where: { id },
-      include: {
-        customer: true,
-        user: { select: { id: true, name: true, email: true } },
-        line_items: {
-          include: {
-            glass_type: { select: { id: true, name: true, price_per_sqm: true } },
-          },
-        },
-        bills: {
-          orderBy: { payment_date: 'desc' },
-        },
-      },
-    });
-
-    if (!invoice) {
-      invoice = await prisma.invoice.findFirst({
-        where: {
-          OR: [
-            { invoice_no: id },
-            { invoice_no: id.toUpperCase() },
-            {
-              line_items: {
-                some: {
-                  quote_id: id,
-                },
-              },
-            },
-          ],
-        },
-        include: {
-          customer: true,
-          user: { select: { id: true, name: true, email: true } },
-          line_items: {
-            include: {
-              glass_type: { select: { id: true, name: true, price_per_sqm: true } },
-            },
-          },
-          bills: {
-            orderBy: { payment_date: 'desc' },
-          },
-        },
-      });
-    }
+    const invoice: any = await findInvoiceByIdOrFallback(id);
 
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
+
+    // Populate customer
+    const custSnap = await adminDb.collection('customers').doc(invoice.customer_id).get();
+    invoice.customer = custSnap.exists ? { id: custSnap.id, ...custSnap.data() } : null;
+
+    // Populate user
+    const userSnap = await adminDb.collection('users').doc(invoice.user_id).get();
+    invoice.user = userSnap.exists ? { id: userSnap.id, name: userSnap.data()?.name, email: userSnap.data()?.email } : null;
+
+    // Populate glass_types for line_items
+    const gtSnap = await adminDb.collection('glass_types').get();
+    const gtMap = new Map<string, any>(gtSnap.docs.map((doc: any) => [doc.id, doc.data()]));
+
+    invoice.line_items = (invoice.line_items || []).map((item: any) => {
+      const gtData = gtMap.get(item.glass_type_id);
+      const glass_type = gtData ? { id: item.glass_type_id, name: gtData.name, price_per_sqm: gtData.price_per_sqm } : null;
+      return {
+        ...item,
+        glass_type,
+      };
+    });
+
+    invoice.bills = invoice.bills || [];
 
     return NextResponse.json(invoice);
   } catch (error) {
@@ -93,27 +107,7 @@ export async function PUT(
     const body = await request.json();
     const { driver_name, vehicle_no, status } = body;
 
-    let invoice = await prisma.invoice.findUnique({
-      where: { id },
-    });
-
-    if (!invoice) {
-      invoice = await prisma.invoice.findFirst({
-        where: {
-          OR: [
-            { invoice_no: id },
-            { invoice_no: id.toUpperCase() },
-            {
-              line_items: {
-                some: {
-                  quote_id: id,
-                },
-              },
-            },
-          ],
-        },
-      });
-    }
+    const invoice: any = await findInvoiceByIdOrFallback(id);
 
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
@@ -132,10 +126,7 @@ export async function PUT(
       updateData.status = status;
     }
 
-    const updatedInvoice = await prisma.invoice.update({
-      where: { id: invoice.id },
-      data: updateData,
-    });
+    await adminDb.collection('invoices').doc(invoice.id).update(updateData);
 
     await logActivity(
       user.id,
@@ -144,6 +135,11 @@ export async function PUT(
       'UPDATE_INVOICE',
       `Updated invoice ${invoice.invoice_no}: ${JSON.stringify(updateData)}`
     );
+
+    const updatedInvoice = {
+      ...invoice,
+      ...updateData,
+    };
 
     return NextResponse.json(updatedInvoice);
   } catch (error) {
@@ -154,4 +150,3 @@ export async function PUT(
     );
   }
 }
-

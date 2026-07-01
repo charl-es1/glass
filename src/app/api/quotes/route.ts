@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
@@ -13,16 +13,33 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const quotes = await prisma.quote.findMany({
-      where: { user_id: user.id },
-      include: {
-        glass_type: {
-          select: { name: true, price_per_sqm: true },
-        },
-        line_items: true,
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    const quotesSnap = await adminDb
+      .collection('quotes')
+      .where('user_id', '==', user.id)
+      .orderBy('created_at', 'desc')
+      .get();
+
+    const quotes = [];
+    for (const doc of quotesSnap.docs) {
+      const q = doc.data();
+      let glassType = null;
+      if (q.glass_type_id) {
+        const gtSnap = await adminDb.collection('glass_types').doc(q.glass_type_id).get();
+        if (gtSnap.exists) {
+          const gtData = gtSnap.data()!;
+          glassType = {
+            name: gtData.name,
+            price_per_sqm: gtData.price_per_sqm,
+          };
+        }
+      }
+      quotes.push({
+        id: doc.id,
+        ...q,
+        glass_type: glassType,
+        line_items: [],
+      });
+    }
 
     return NextResponse.json(quotes);
   } catch (error) {
@@ -82,11 +99,14 @@ export async function POST(request: Request) {
 
       // Fetch all required glass types first to validate and compute
       const glassTypeIds = Array.from(new Set(items.map((item: any) => item.glass_type_id)));
-      const glassTypes = await prisma.glassType.findMany({
-        where: { id: { in: glassTypeIds } },
-      });
+      const glassTypesMap = new Map();
 
-      const glassTypesMap = new Map(glassTypes.map((gt) => [gt.id, gt]));
+      for (const gtId of glassTypeIds) {
+        const gtSnap = await adminDb.collection('glass_types').doc(gtId as string).get();
+        if (gtSnap.exists) {
+          glassTypesMap.set(gtId, gtSnap.data());
+        }
+      }
 
       // Parse and compute specifications
       const computedItems = [];
@@ -127,29 +147,28 @@ export async function POST(request: Request) {
       const discountAmount = grandTotal * (finalDiscount / 100);
       const finalTotalPrice = grandTotal - discountAmount;
 
-      // Create a single grouped quote in database
-      const newQuote = await prisma.quote.create({
-        data: {
-          user_id: user.id,
-          glass_type_id: null,
-          length: null,
-          width: null,
-          thickness: null,
-          area: totalArea,
-          total_price: finalTotalPrice,
-          discount_percentage: finalDiscount,
-          items_json: JSON.stringify(computedItems),
-        },
-        include: {
-          glass_type: {
-            select: { name: true, price_per_sqm: true },
-          },
-          line_items: true,
-        },
-      });
+      // Create a single grouped quote in Firestore
+      const docRef = adminDb.collection('quotes').doc();
+      const newQuote = {
+        id: docRef.id,
+        user_id: user.id,
+        glass_type_id: null,
+        length: null,
+        width: null,
+        thickness: null,
+        area: totalArea,
+        total_price: finalTotalPrice,
+        discount_percentage: finalDiscount,
+        items_json: JSON.stringify(computedItems),
+        created_at: new Date().toISOString(),
+      };
+
+      await docRef.set(newQuote);
 
       // Log combined activity
-      const quoteSummaries = computedItems.map(item => `${item.glass_type_name} (${item.length.toFixed(2)}m x ${item.width.toFixed(2)}m)`).join(', ');
+      const quoteSummaries = computedItems
+        .map((item) => `${item.glass_type_name} (${item.length.toFixed(2)}m x ${item.width.toFixed(2)}m)`)
+        .join(', ');
       await logActivity(
         user.id,
         user.email,
@@ -158,7 +177,13 @@ export async function POST(request: Request) {
         `Created grouped quote: [${quoteSummaries}] - Combined Total: ${finalTotalPrice.toFixed(2)} GHS (Discounted ${finalDiscount}%)`
       );
 
-      return NextResponse.json(newQuote, { status: 201 });
+      const responseQuote = {
+        ...newQuote,
+        glass_type: null,
+        line_items: [],
+      };
+
+      return NextResponse.json(responseQuote, { status: 201 });
     }
 
     // Fall back to single quote insert
@@ -181,16 +206,14 @@ export async function POST(request: Request) {
     }
 
     // Get glass type to retrieve the unit price
-    const glassType = await prisma.glassType.findUnique({
-      where: { id: glass_type_id },
-    });
-
-    if (!glassType) {
+    const gtSnap = await adminDb.collection('glass_types').doc(glass_type_id).get();
+    if (!gtSnap.exists) {
       return NextResponse.json(
         { error: 'Selected glass type does not exist' },
         { status: 400 }
       );
     }
+    const glassType = gtSnap.data()!;
 
     // Compute area and price (including thickness multiplier)
     const area = len * wid;
@@ -199,24 +222,21 @@ export async function POST(request: Request) {
     const finalTotalPrice = basePrice - discountAmount;
 
     // Save quote
-    const newQuote = await prisma.quote.create({
-      data: {
-        user_id: user.id,
-        glass_type_id,
-        length: len,
-        width: wid,
-        thickness: thick,
-        area,
-        total_price: finalTotalPrice,
-        discount_percentage: finalDiscount,
-      },
-      include: {
-        glass_type: {
-          select: { name: true, price_per_sqm: true },
-        },
-        line_items: true,
-      },
-    });
+    const docRef = adminDb.collection('quotes').doc();
+    const newQuote = {
+      id: docRef.id,
+      user_id: user.id,
+      glass_type_id,
+      length: len,
+      width: wid,
+      thickness: thick,
+      area,
+      total_price: finalTotalPrice,
+      discount_percentage: finalDiscount,
+      created_at: new Date().toISOString(),
+    };
+
+    await docRef.set(newQuote);
 
     // Log CREATE_QUOTE activity
     await logActivity(
@@ -224,15 +244,21 @@ export async function POST(request: Request) {
       user.email,
       user.name,
       'CREATE_QUOTE',
-      `Created quote for ${newQuote.glass_type?.name} (${len.toFixed(2)}m × ${wid.toFixed(2)}m × ${thick.toFixed(1)}mm) - Total: ${finalTotalPrice.toFixed(2)} GHS (Discounted ${finalDiscount}%)`
+      `Created quote for ${glassType.name} (${len.toFixed(2)}m × ${wid.toFixed(2)}m × ${thick.toFixed(1)}mm) - Total: ${finalTotalPrice.toFixed(2)} GHS (Discounted ${finalDiscount}%)`
     );
 
-    return NextResponse.json(newQuote, { status: 201 });
+    const responseQuote = {
+      ...newQuote,
+      glass_type: {
+        name: glassType.name,
+        price_per_sqm: glassType.price_per_sqm,
+      },
+      line_items: [],
+    };
+
+    return NextResponse.json(responseQuote, { status: 201 });
   } catch (error: any) {
     console.error('Error saving quote:', error);
-    if (error instanceof Error && error.message.includes('Selected glass type does not exist')) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 }

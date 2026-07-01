@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
@@ -38,13 +38,12 @@ export async function PUT(
     }
 
     // Check if name is taken by another glass type
-    const duplicate = await prisma.glassType.findFirst({
-      where: {
-        name,
-        id: { not: id },
-      },
-    });
+    const duplicateSnap = await adminDb
+      .collection('glass_types')
+      .where('name', '==', name)
+      .get();
 
+    const duplicate = duplicateSnap.docs.find((doc: any) => doc.id !== id);
     if (duplicate) {
       return NextResponse.json(
         { error: 'Another glass type already has this name' },
@@ -52,13 +51,20 @@ export async function PUT(
       );
     }
 
-    const updated = await prisma.glassType.update({
-      where: { id },
-      data: {
-        name,
-        price_per_sqm: price,
-      },
-    });
+    const docRef = adminDb.collection('glass_types').doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return NextResponse.json({ error: 'Glass type not found' }, { status: 404 });
+    }
+
+    const updated = {
+      id,
+      name,
+      price_per_sqm: price,
+      updated_at: new Date().toISOString(),
+    };
+
+    await docRef.update(updated);
 
     // Log UPDATE_GLASS_TYPE activity
     await logActivity(
@@ -97,24 +103,27 @@ export async function DELETE(
     const { id } = await params;
 
     // Check if there are quotes using this glass type
-    const quotesUsing = await prisma.quote.findFirst({
-      where: { glass_type_id: id },
-    });
+    const quotesUsingSnap = await adminDb
+      .collection('quotes')
+      .where('glass_type_id', '==', id)
+      .limit(1)
+      .get();
 
-    if (quotesUsing) {
+    if (!quotesUsingSnap.empty) {
       return NextResponse.json(
         { error: 'Cannot delete glass type as it is linked to existing quotes' },
         { status: 400 }
       );
     }
 
-    const targetGlass = await prisma.glassType.findUnique({
-      where: { id },
-    });
+    const docRef = adminDb.collection('glass_types').doc(id);
+    const docSnap = await docRef.get();
 
-    if (!targetGlass) {
+    if (!docSnap.exists) {
       return NextResponse.json({ error: 'Glass type not found' }, { status: 404 });
     }
+
+    const targetGlass = docSnap.data()!;
 
     // Log DELETE_GLASS_TYPE activity
     await logActivity(
@@ -125,9 +134,7 @@ export async function DELETE(
       `Deleted glass type: ${targetGlass.name}`
     );
 
-    await prisma.glassType.delete({
-      where: { id },
-    });
+    await docRef.delete();
 
     return NextResponse.json({ success: true, message: 'Glass type deleted' });
   } catch (error) {

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { Prisma } from '@/generated/prisma/client';
 import bcrypt from 'bcryptjs';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
+// PUT: Update user profile (Admin only)
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -38,13 +38,12 @@ export async function PUT(
     }
 
     // Check if email is duplicate
-    const duplicate = await prisma.user.findFirst({
-      where: {
-        email,
-        id: { not: id },
-      },
-    });
+    const duplicateSnap = await adminDb
+      .collection('users')
+      .where('email', '==', email)
+      .get();
 
+    const duplicate = duplicateSnap.docs.find((doc: any) => doc.id !== id);
     if (duplicate) {
       return NextResponse.json(
         { error: 'Another user already has this email' },
@@ -53,14 +52,13 @@ export async function PUT(
     }
 
     // Prepare update data
-    const updateData: Prisma.UserUpdateInput = {
+    const updateData: any = {
       name,
       email,
       role,
       status,
     };
 
-    // If password is provided, hash and update it
     if (password && password.trim() !== '') {
       updateData.password_hash = await bcrypt.hash(password, 10);
     }
@@ -73,18 +71,22 @@ export async function PUT(
       );
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id },
-      data: updateData,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        created_at: true,
-      },
-    });
+    const userRef = adminDb.collection('users').doc(id);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    await userRef.update(updateData);
+
+    const updatedUser = {
+      id,
+      name,
+      email,
+      role,
+      status,
+      created_at: userDoc.data()?.created_at,
+    };
 
     // Log UPDATE_USER activity
     await logActivity(
@@ -130,17 +132,13 @@ export async function DELETE(
       );
     }
 
-    // Check if user exists
-    const targetUser = await prisma.user.findUnique({
-      where: { id },
-    });
-
-    if (!targetUser) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
+    const userRef = adminDb.collection('users').doc(id);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
+
+    const targetUser = userDoc.data()!;
 
     // Log DELETE_USER activity
     await logActivity(
@@ -151,10 +149,16 @@ export async function DELETE(
       `Deleted user account: ${targetUser.name} (${targetUser.email})`
     );
 
-    // Delete the user (Quotes will cascade delete automatically)
-    await prisma.user.delete({
-      where: { id },
+    // Delete the user document
+    await userRef.delete();
+
+    // Cascading deletion of quotes: find quotes by user_id and delete them
+    const quotesSnap = await adminDb.collection('quotes').where('user_id', '==', id).get();
+    const batch = adminDb.batch();
+    quotesSnap.docs.forEach((doc: any) => {
+      batch.delete(doc.ref);
     });
+    await batch.commit();
 
     return NextResponse.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
@@ -165,4 +169,3 @@ export async function DELETE(
     );
   }
 }
-

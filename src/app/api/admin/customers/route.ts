@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { adminDb } from '@/lib/firebase-admin';
 import { getAuthUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -12,9 +12,11 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const customers = await prisma.customer.findMany({
-      orderBy: { name: 'asc' },
-    });
+    const snap = await adminDb.collection('customers').orderBy('name', 'asc').get();
+    const customers = snap.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
 
     return NextResponse.json(customers);
   } catch (error) {
@@ -44,13 +46,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const customer = await prisma.customer.create({
-      data: {
-        name,
-        email: email || null,
-        phone: phone || null,
-      },
-    });
+    const docRef = adminDb.collection('customers').doc();
+    const customer = {
+      id: docRef.id,
+      name,
+      email: email || null,
+      phone: phone || null,
+      created_at: new Date().toISOString(),
+    };
+
+    await docRef.set(customer);
 
     return NextResponse.json(customer, { status: 201 });
   } catch (error) {

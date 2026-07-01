@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
-import { signToken } from '@/lib/auth';
+import { adminDb } from '@/lib/firebase-admin';
+import { signToken, ensureDbSeeded } from '@/lib/auth';
 import { logActivity } from '@/lib/audit';
 
 export async function POST(request: Request) {
   try {
+    await ensureDbSeeded();
     const body = await request.json();
     const { pin } = body;
 
@@ -12,16 +13,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'PIN is required' }, { status: 400 });
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        pin: pin,
-        status: 'active',
-      },
-    });
+    const userQuery = await adminDb
+      .collection('users')
+      .where('pin', '==', pin)
+      .where('status', '==', 'active')
+      .limit(1)
+      .get();
 
-    if (!user) {
+    if (userQuery.empty) {
       return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
     }
+
+    const userDoc = userQuery.docs[0]!;
+    const user = { id: userDoc.id, ...userDoc.data() } as any;
 
     // Sign JWT
     const token = signToken({
