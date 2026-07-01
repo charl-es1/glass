@@ -7,7 +7,6 @@ export const dynamic = 'force-dynamic';
 
 const testGetFirebaseAdminApp = () => {
   const activeApps = getApps();
-  // Use a unique name for the test app so it doesn't conflict with the default app
   const testAppName = 'test-diagnostic-app';
   const existingApp = activeApps.find(app => app.name === testAppName);
   if (existingApp) {
@@ -47,28 +46,30 @@ const testGetFirebaseAdminApp = () => {
 
 export async function GET() {
   try {
-    console.log('Diagnostic test: starting...');
     const app = testGetFirebaseAdminApp();
-    console.log('Diagnostic test: app initialized', app.name);
     const db = getFirestore(app);
-    console.log('Diagnostic test: db resolved');
     
-    // Attempt a real query to Firestore
-    const testSnap = await db.collection('users').limit(1).get();
-    console.log('Diagnostic test: Firestore read success, size:', testSnap.size);
+    // Get all users in the collection
+    const usersSnap = await db.collection('users').get();
+    const userEmails = usersSnap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        email: data.email || 'missing-email',
+        name: data.name || 'missing-name',
+        role: data.role || 'missing-role',
+      };
+    });
 
     return NextResponse.json({
       status: 'success',
-      message: 'Firebase Admin successfully initialized and connected to Firestore!',
-      databaseConnected: true,
-      usersFound: testSnap.size,
+      totalUsers: usersSnap.size,
+      users: userEmails,
     });
   } catch (err: any) {
-    console.error('Diagnostic test failed:', err);
     return NextResponse.json({
       status: 'error',
-      message: `Firebase Admin initialization or query failed: ${err.message}`,
-      stack: err.stack,
+      message: `Failed to query users: ${err.message}`,
     });
   }
 }
