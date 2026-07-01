@@ -16,10 +16,9 @@ export async function GET() {
     const quotesSnap = await adminDb
       .collection('quotes')
       .where('user_id', '==', user.id)
-      .orderBy('created_at', 'desc')
       .get();
 
-    const quotes = [];
+    let quotes = [];
     for (const doc of quotesSnap.docs) {
       const q = doc.data();
       let glassType = null;
@@ -40,6 +39,9 @@ export async function GET() {
         line_items: [],
       });
     }
+
+    // Sort by created_at desc in-memory to prevent index errors
+    quotes.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     return NextResponse.json(quotes);
   } catch (error) {

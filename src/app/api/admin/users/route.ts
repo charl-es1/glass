@@ -54,8 +54,10 @@ export async function GET() {
 
 // POST: Create a new user (Admin only)
 export async function POST(request: Request) {
+  console.log('POST /api/admin/users: start');
   try {
     const adminUser = await getAuthUser();
+    console.log('POST /api/admin/users: adminUser parsed', adminUser);
     if (!adminUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

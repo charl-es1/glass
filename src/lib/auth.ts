@@ -5,13 +5,37 @@ import { initializeFirebaseDatabase } from './firebase-seed';
 const JWT_SECRET = process.env.JWT_SECRET || 'glass-cutting-secret-key-12345';
 
 export let dbSeeded = false;
+
+function timeoutPromise<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(errorMsg));
+    }, ms);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 export async function ensureDbSeeded() {
   if (!dbSeeded) {
     dbSeeded = true;
-    await initializeFirebaseDatabase().catch(err => {
-      console.error('Lazy Firebase seeding failed:', err);
-      dbSeeded = false; // Reset so that it retries on subsequent requests
-    });
+    console.log('Initiating lazy Firestore database seeding checks...');
+    await timeoutPromise(initializeFirebaseDatabase(), 4000, 'Firestore seeding connection timed out')
+      .then(() => {
+        console.log('Firestore seeding verification finished successfully.');
+      })
+      .catch(err => {
+        console.error('Lazy Firebase seeding failed or timed out:', err);
+        dbSeeded = false; // Reset so that it retries on subsequent requests
+      });
   }
 }
 
