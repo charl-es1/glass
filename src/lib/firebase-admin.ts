@@ -13,12 +13,25 @@ const getFirebaseAdminApp = () => {
   if (serviceAccountJson) {
     try {
       let credentials;
-      const trimmed = serviceAccountJson.trim();
-      if (trimmed.startsWith('{')) {
-        credentials = JSON.parse(trimmed);
+      let cleanJson = serviceAccountJson.trim();
+      
+      // Strip any wrapping single or double quotes introduced by copy-pasting into env settings
+      if (cleanJson.startsWith("'") && cleanJson.endsWith("'")) {
+        cleanJson = cleanJson.slice(1, -1).trim();
+      } else if (cleanJson.startsWith('"') && cleanJson.endsWith('"')) {
+        cleanJson = cleanJson.slice(1, -1).trim();
+      }
+
+      if (cleanJson.startsWith('{')) {
+        credentials = JSON.parse(cleanJson);
       } else {
         // Read service account from file path
-        credentials = JSON.parse(fs.readFileSync(trimmed, 'utf8'));
+        credentials = JSON.parse(fs.readFileSync(cleanJson, 'utf8'));
+      }
+
+      // Format private key correctly for Vercel/Serverless environments
+      if (credentials && credentials.private_key) {
+        credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
       }
       
       return initializeApp({
