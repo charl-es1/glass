@@ -83,10 +83,10 @@ export async function POST(request: Request) {
     await logActivity(user.id, user.email, user.name, 'LOGIN', `Logged into the system as role: ${user.role}`);
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: error.message, stack: error.stack },
       { status: 500 }
     );
   }
