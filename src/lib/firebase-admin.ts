@@ -81,12 +81,12 @@ export function getAdminAuth() {
   return cachedAuth;
 }
 
-// Use Proxy wrappers to lazily resolve adminDb and adminAuth properties on access.
-// This prevents module import-time initialization crashes on Vercel.
+// Proxy wrapper to redirect property accesses directly to the raw instances.
+// This resolves import-time startup crashes on Vercel while avoiding SDK incompatible receiver exceptions.
 export const adminDb = new Proxy({}, {
-  get(target, prop, receiver) {
+  get(target, prop) {
     const db = getDb();
-    const value = Reflect.get(db, prop, receiver);
+    const value = (db as any)[prop];
     if (typeof value === 'function') {
       return value.bind(db);
     }
@@ -95,9 +95,9 @@ export const adminDb = new Proxy({}, {
 }) as ReturnType<typeof getFirestore>;
 
 export const adminAuth = new Proxy({}, {
-  get(target, prop, receiver) {
+  get(target, prop) {
     const auth = getAdminAuth();
-    const value = Reflect.get(auth, prop, receiver);
+    const value = (auth as any)[prop];
     if (typeof value === 'function') {
       return value.bind(auth);
     }
