@@ -4,9 +4,11 @@ import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
 
 const getFirebaseAdminApp = () => {
+  const adminAppName = 'glass-cutting-admin';
   const activeApps = getApps();
-  if (activeApps.length > 0) {
-    return activeApps[0]!;
+  const existingApp = activeApps.find(app => app.name === adminAppName);
+  if (existingApp) {
+    return existingApp;
   }
 
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -37,10 +39,10 @@ const getFirebaseAdminApp = () => {
       try {
         return initializeApp({
           credential: cert(credentials),
-        });
+        }, adminAppName);
       } catch (err: any) {
         if (err.code === 'app/duplicate-app' || err.message.includes('already exists')) {
-          return getApp();
+          return getApp(adminAppName);
         }
         throw err;
       }
@@ -54,10 +56,10 @@ const getFirebaseAdminApp = () => {
   try {
     return initializeApp({
       projectId,
-    });
+    }, adminAppName);
   } catch (err: any) {
     if (err.code === 'app/duplicate-app' || err.message.includes('already exists')) {
-      return getApp();
+      return getApp(adminAppName);
     }
     throw err;
   }
