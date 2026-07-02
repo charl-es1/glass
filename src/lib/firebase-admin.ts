@@ -15,7 +15,7 @@ const getFirebaseAdminApp = () => {
       let credentials;
       let cleanJson = serviceAccountJson.trim();
       
-      // Strip any wrapping single or double quotes introduced by copy-pasting into env settings
+      // Strip any wrapping single or double quotes
       if (cleanJson.startsWith("'") && cleanJson.endsWith("'")) {
         cleanJson = cleanJson.slice(1, -1).trim();
       } else if (cleanJson.startsWith('"') && cleanJson.endsWith('"')) {
@@ -29,7 +29,7 @@ const getFirebaseAdminApp = () => {
         credentials = JSON.parse(fs.readFileSync(cleanJson, 'utf8'));
       }
 
-      // Format private key correctly for Vercel/Serverless environments
+      // Format private key correctly
       if (credentials && credentials.private_key) {
         credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
       }
@@ -49,15 +49,58 @@ const getFirebaseAdminApp = () => {
   });
 };
 
-const adminApp = getFirebaseAdminApp();
-const adminDb = getFirestore(adminApp);
-const adminAuth = getAuth(adminApp);
+let cachedApp: any = null;
+let cachedDb: any = null;
+let cachedAuth: any = null;
 
-// Enable ignoreUndefinedProperties to prevent Firestore from crashing on undefined fields
-try {
-  adminDb.settings({ ignoreUndefinedProperties: true });
-} catch (err) {
-  // Ignore initialization errors if settings are already set
+export function getFirebaseApp() {
+  if (!cachedApp) {
+    cachedApp = getFirebaseAdminApp();
+  }
+  return cachedApp;
 }
 
-export { adminApp, adminDb, adminAuth };
+export function getDb() {
+  if (!cachedDb) {
+    const app = getFirebaseApp();
+    cachedDb = getFirestore(app);
+    try {
+      cachedDb.settings({ ignoreUndefinedProperties: true });
+    } catch (err) {
+      // Settings might already be set
+    }
+  }
+  return cachedDb;
+}
+
+export function getAdminAuth() {
+  if (!cachedAuth) {
+    const app = getFirebaseApp();
+    cachedAuth = getAuth(app);
+  }
+  return cachedAuth;
+}
+
+// Use Proxy wrappers to lazily resolve adminDb and adminAuth properties on access.
+// This prevents module import-time initialization crashes on Vercel.
+export const adminDb = new Proxy({}, {
+  get(target, prop, receiver) {
+    const db = getDb();
+    const value = Reflect.get(db, prop, receiver);
+    if (typeof value === 'function') {
+      return value.bind(db);
+    }
+    return value;
+  }
+}) as ReturnType<typeof getFirestore>;
+
+export const adminAuth = new Proxy({}, {
+  get(target, prop, receiver) {
+    const auth = getAdminAuth();
+    const value = Reflect.get(auth, prop, receiver);
+    if (typeof value === 'function') {
+      return value.bind(auth);
+    }
+    return value;
+  }
+}) as ReturnType<typeof getAuth>;
