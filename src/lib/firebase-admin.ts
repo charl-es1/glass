@@ -1,4 +1,4 @@
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
+import { getApps, initializeApp, cert, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
@@ -34,9 +34,16 @@ const getFirebaseAdminApp = () => {
         credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
       }
       
-      return initializeApp({
-        credential: cert(credentials),
-      });
+      try {
+        return initializeApp({
+          credential: cert(credentials),
+        });
+      } catch (err: any) {
+        if (err.code === 'app/duplicate-app' || err.message.includes('already exists')) {
+          return getApp();
+        }
+        throw err;
+      }
     } catch (err) {
       console.error('Failed to initialize Firebase Admin with service account:', err);
     }
@@ -44,9 +51,16 @@ const getFirebaseAdminApp = () => {
 
   // Fallback to project ID
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || 'glass-cutting-app';
-  return initializeApp({
-    projectId,
-  });
+  try {
+    return initializeApp({
+      projectId,
+    });
+  } catch (err: any) {
+    if (err.code === 'app/duplicate-app' || err.message.includes('already exists')) {
+      return getApp();
+    }
+    throw err;
+  }
 };
 
 let cachedApp: any = null;
