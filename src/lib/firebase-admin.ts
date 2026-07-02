@@ -81,45 +81,25 @@ export function getAdminAuth() {
   return cachedAuth;
 }
 
-// Special property names checked by Next.js, React, and Webpack/Turbopack bundlers
-const BYPASS_PROPERTIES = new Set([
-  '$$typeof',
-  'then',
-  'toJSON',
-  'toString',
-  'valueOf',
-  'inspect',
-  'prototype',
-  'constructor',
-  '__esModule'
-]);
-
-// Proxy wrapper to redirect property accesses directly to the raw instances.
-// Safely bypasses initialization for Next.js/React framework metadata inspections.
-export const adminDb = new Proxy({}, {
-  get(target, prop) {
-    if (typeof prop === 'symbol' || BYPASS_PROPERTIES.has(prop as string)) {
-      return undefined;
-    }
-    const db = getDb();
-    const value = (db as any)[prop];
-    if (typeof value === 'function') {
-      return value.bind(db);
-    }
-    return value;
+// Plain object wrapper that delegates standard Firestore/Auth methods to the underlying
+// initialized instance. This prevents build/bundling/framework-inspection crashes on Vercel.
+export const adminDb = {
+  collection(name: string) {
+    return getDb().collection(name);
+  },
+  runTransaction(updateFunction: any) {
+    return getDb().runTransaction(updateFunction);
+  },
+  batch() {
+    return getDb().batch();
   }
-}) as ReturnType<typeof getFirestore>;
+} as any as ReturnType<typeof getFirestore>;
 
-export const adminAuth = new Proxy({}, {
-  get(target, prop) {
-    if (typeof prop === 'symbol' || BYPASS_PROPERTIES.has(prop as string)) {
-      return undefined;
-    }
-    const auth = getAdminAuth();
-    const value = (auth as any)[prop];
-    if (typeof value === 'function') {
-      return value.bind(auth);
-    }
-    return value;
+export const adminAuth = {
+  createUser(properties: any) {
+    return getAdminAuth().createUser(properties);
+  },
+  deleteUser(uid: string) {
+    return getAdminAuth().deleteUser(uid);
   }
-}) as ReturnType<typeof getAuth>;
+} as any as ReturnType<typeof getAuth>;
