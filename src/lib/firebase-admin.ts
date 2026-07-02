@@ -1,12 +1,12 @@
-import { getApps, initializeApp, cert, getApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
+import type { Firestore } from 'firebase-admin/firestore';
+import type { Auth } from 'firebase-admin/auth';
 
 const getFirebaseAdminApp = () => {
+  const { getApps, initializeApp, cert, getApp } = require('firebase-admin/app');
   const adminAppName = 'glass-cutting-admin';
   const activeApps = getApps();
-  const existingApp = activeApps.find(app => app.name === adminAppName);
+  const existingApp = activeApps.find((app: any) => app.name === adminAppName);
   if (existingApp) {
     return existingApp;
   }
@@ -78,6 +78,7 @@ export function getFirebaseApp() {
 
 export function getDb() {
   if (!cachedDb) {
+    const { getFirestore } = require('firebase-admin/firestore');
     const app = getFirebaseApp();
     cachedDb = getFirestore(app);
     try {
@@ -91,6 +92,7 @@ export function getDb() {
 
 export function getAdminAuth() {
   if (!cachedAuth) {
+    const { getAuth } = require('firebase-admin/auth');
     const app = getFirebaseApp();
     cachedAuth = getAuth(app);
   }
@@ -109,7 +111,7 @@ export const adminDb = {
   batch() {
     return getDb().batch();
   }
-} as any as ReturnType<typeof getFirestore>;
+} as any as Firestore;
 
 export const adminAuth = {
   createUser(properties: any) {
@@ -118,4 +120,4 @@ export const adminAuth = {
   deleteUser(uid: string) {
     return getAdminAuth().deleteUser(uid);
   }
-} as any as ReturnType<typeof getAuth>;
+} as any as Auth;

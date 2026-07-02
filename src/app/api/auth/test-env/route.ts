@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     try {
       // Test the proxy-wrapped adminDb instance
       const testSnap = await adminDb.collection('users').get();
-      const users = testSnap.docs.map(doc => ({ id: doc.id, email: doc.data().email, role: doc.data().role }));
+      const users = testSnap.docs.map((doc: any) => ({ id: doc.id, email: doc.data().email, role: doc.data().role }));
       
       // Test bcrypt call
       const testHash = await bcrypt.hash('testpassword', 10);
