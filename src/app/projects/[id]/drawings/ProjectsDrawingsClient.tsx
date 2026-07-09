@@ -78,6 +78,21 @@ export default function ProjectsDrawingsClient({
   catalogCategories,
 }: ProjectsDrawingsClientProps) {
   const router = useRouter();
+  const [settings, setSettings] = useState<any | null>(null);
+
+  useEffect(() => {
+    async function fetchSettings() {
+      try {
+        const res = await fetch('/api/settings', { cache: 'no-store' });
+        if (res.ok) {
+          setSettings(await res.json());
+        }
+      } catch (err) {
+        console.error('Error fetching settings:', err);
+      }
+    }
+    fetchSettings();
+  }, []);
 
   // Map dynamic database catalog
   const catalog = React.useMemo(() => {
@@ -271,7 +286,7 @@ export default function ProjectsDrawingsClient({
     doc.setTextColor(255, 255, 255);
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(10);
-    doc.text('GLASS APP DESIGNER', blockX + 6, blockY + 9);
+    doc.text(settings?.siteTitle ? settings.siteTitle.toUpperCase() : 'GLASS APP DESIGNER', blockX + 6, blockY + 9);
     doc.setFontSize(7.5);
     doc.setFont('Helvetica', 'normal');
     doc.text('Manufacturing Shop Drawings', blockX + 6, blockY + 15);
@@ -298,7 +313,7 @@ export default function ProjectsDrawingsClient({
     drawRow('PRODUCT STYLE:', currentCatalogType?.name || subType);
     drawRow('CLIENT:', invoice?.customer.name || 'Glazing Catalog Reference');
     drawRow('DESIGNER:', user.name);
-    drawRow('DATE:', new Date().toLocaleDateString());
+    drawRow('DATE:', new Date().toLocaleDateString(settings?.defaultLanguage || 'en'));
     drawRow('WIDTH:', `${Math.round(width)} mm`);
     drawRow('HEIGHT:', `${Math.round(height)} mm`);
     drawRow('GLASS AREA:', `${glassAreaSqm.toFixed(2)} m²`);

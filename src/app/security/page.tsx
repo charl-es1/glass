@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { jsPDF } from 'jspdf';
 import styles from './security.module.css';
+import Footer from '@/components/Footer';
 
 interface Customer {
   id: string;
@@ -66,6 +67,58 @@ export default function SecurityCheckpoint() {
   const [officerName, setOfficerName] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [loginError, setLoginError] = useState('');
+
+  // Branding Settings State
+  const [settings, setSettings] = useState<any | null>(null);
+
+  const getBase64ImageFromUrl = (imageUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.setAttribute('crossOrigin', 'anonymous');
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0);
+        const dataURL = canvas.toDataURL('image/png');
+        resolve(dataURL);
+      };
+      img.onerror = (error) => {
+        reject(error);
+      };
+      img.src = imageUrl;
+    });
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings', { cache: 'no-store' });
+      if (res.ok) {
+        setSettings(await res.json());
+      }
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  };
+
+  const formatDateTime = (dateStr: string | Date | number) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleString(settings?.defaultLanguage || 'en');
+    } catch {
+      return String(dateStr);
+    }
+  };
+
+  const formatDate = (dateStr: string | Date | number) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(settings?.defaultLanguage || 'en');
+    } catch {
+      return String(dateStr);
+    }
+  };
 
   // App Layout State
   const [activeView, setActiveView] = useState<'pending' | 'history'>('pending');
@@ -160,6 +213,7 @@ export default function SecurityCheckpoint() {
   // Load dashboard data if authenticated
   useEffect(() => {
     if (isAuthenticated) {
+      fetchSettings();
       fetchBills();
       fetchPastVerifications();
     }
@@ -701,7 +755,7 @@ export default function SecurityCheckpoint() {
   };
 
   // Client-Side PDF Generation containing Officer details & Signatures
-  const generateClearancePDF = (invoice: Invoice, verification: any) => {
+  const generateClearancePDF = async (invoice: Invoice, verification: any) => {
     try {
       const doc = new jsPDF({
         orientation: 'portrait',
@@ -714,10 +768,23 @@ export default function SecurityCheckpoint() {
       doc.rect(0, 0, 210, 38, 'F');
 
       // Title branding
-      doc.setTextColor(56, 189, 248); // primary light blue
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text('GlassCut Exit Gate', 15, 18);
+      let logoBase64 = null;
+      if (settings?.headerLogo?.url) {
+        try {
+          logoBase64 = await getBase64ImageFromUrl(settings.headerLogo.url);
+        } catch (e) {
+          console.error("Failed to load header logo base64:", e);
+        }
+      }
+
+      if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', 15, 10, 38, 15);
+      } else {
+        doc.setTextColor(56, 189, 248); // primary light blue
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.text(settings?.siteTitle || 'GlassCut Exit Gate', 15, 18);
+      }
       
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
@@ -734,7 +801,7 @@ export default function SecurityCheckpoint() {
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(9.5);
       doc.text(`Clearance Ref: ${verification.clearance_ref || 'PENDING SYNC'}`, 15, 58);
-      doc.text(`Gate Pass Date: ${new Date(verification.verified_at).toLocaleString()}`, 15, 64);
+      doc.text(`Gate Pass Date: ${formatDateTime(verification.verified_at)}`, 15, 64);
       doc.text(`Officer In Charge: ${verification.officer_name}`, 15, 70);
 
       // Metadata Block Right
@@ -830,10 +897,37 @@ export default function SecurityCheckpoint() {
       doc.line(15, currentY + 32, 65, currentY + 32);
 
       // Footer
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 268, 195, 268);
+
+      let footerLogoBase64 = null;
+      if (settings?.footerLogo?.url) {
+        try {
+          footerLogoBase64 = await getBase64ImageFromUrl(settings.footerLogo.url);
+        } catch (e) {
+          console.error("Failed to load footer logo base64:", e);
+        }
+      }
+
+      if (footerLogoBase64) {
+        doc.addImage(footerLogoBase64, 'PNG', 15, 270, 26, 10);
+      } else {
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 276);
+      }
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(`Email: ${settings?.email || 'info@glasscutting.com'}  |  Phone: ${settings?.phone || '+233 24 123 4567'}`, 55, 275);
+      doc.text(`Address: ${settings?.address || '123 Glass Lane, Industrial Area, Accra, Ghana'}`, 55, 279);
+
       doc.setTextColor(148, 163, 184);
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('This document certifies that gate exit screening was completed as per business protocol.', 15, 280);
+      doc.setFontSize(7);
+      doc.text('This document certifies that gate exit screening was completed as per business protocol.', 15, 287);
 
       // Trigger download
       const filename = `GateClearance_${invoice.invoice_no}_${verification.clearance_ref || 'PENDING'}.pdf`;
@@ -931,9 +1025,22 @@ export default function SecurityCheckpoint() {
       {/* Tablet Header Bar */}
       <header className={styles.header}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span className="text-gradient" style={{ fontWeight: 700, fontSize: '1.35rem' }}>
-            Exit Gate Checkpoint
-          </span>
+          {settings?.headerLogo ? (
+            <img 
+              src={settings.headerLogo.url} 
+              alt={settings.siteTitle || 'Logo'} 
+              style={{ 
+                height: '32px', 
+                maxWidth: '180px', 
+                objectFit: 'contain',
+                marginRight: '8px'
+              }} 
+            />
+          ) : (
+            <span className="text-gradient" style={{ fontWeight: 700, fontSize: '1.35rem' }}>
+              {settings?.siteTitle ? `${settings.siteTitle} Gate` : 'Exit Gate Checkpoint'}
+            </span>
+          )}
           <div className={styles.statusBadge}>
             <div className={`${styles.statusIndicator} ${isOnline ? styles.statusOnline : styles.statusOffline}`} />
             <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>
@@ -1087,7 +1194,7 @@ export default function SecurityCheckpoint() {
                       <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '8px' }}>
                         <div>Driver: {item.invoice.driver_name} | Reg: {item.invoice.vehicle_no}</div>
                         <div>Signatory: {item.signatory_name}</div>
-                        <div className="text-muted">Cleared: {new Date(item.verified_at).toLocaleString()}</div>
+                        <div className="text-muted">Cleared: {formatDateTime(item.verified_at)}</div>
                       </div>
 
                       <button
@@ -1400,6 +1507,7 @@ export default function SecurityCheckpoint() {
           </div>
         </div>
       )}
+      <Footer settings={settings} />
     </div>
   );
 }

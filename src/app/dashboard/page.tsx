@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import GlassVisualizer from '@/components/GlassVisualizer';
 import { jsPDF } from 'jspdf';
 import styles from './dashboard.module.css';
+import Footer from '@/components/Footer';
 
 interface User {
   id: string;
@@ -112,6 +113,56 @@ export default function StaffDashboard() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [settings, setSettings] = useState<any | null>(null);
+
+  const getBase64ImageFromUrl = (imageUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.setAttribute('crossOrigin', 'anonymous');
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0);
+        const dataURL = canvas.toDataURL('image/png');
+        resolve(dataURL);
+      };
+      img.onerror = (error) => {
+        reject(error);
+      };
+      img.src = imageUrl;
+    });
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings', { cache: 'no-store' });
+      if (res.ok) {
+        setSettings(await res.json());
+      }
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  };
+
+  const formatDateTime = (dateStr: string | Date | number) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleString(settings?.defaultLanguage || 'en');
+    } catch {
+      return String(dateStr);
+    }
+  };
+
+  const formatDate = (dateStr: string | Date | number) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(settings?.defaultLanguage || 'en');
+    } catch {
+      return String(dateStr);
+    }
+  };
 
 
   const [activeTab, setActiveTabState] = useState<'calculator' | 'invoices'>(() => {
@@ -223,6 +274,9 @@ export default function StaffDashboard() {
           router.push('/login');
           return;
         }
+
+        // Fetch system settings
+        await fetchSettings();
 
         // 2. Fetch Glass Types
         const gtRes = await fetch('/api/glass-types', { cache: 'no-store' });
@@ -694,7 +748,7 @@ export default function StaffDashboard() {
   };
 
   // PDF Generation for a saved Quote
-  const handleExportPDF = (quote: Quote) => {
+  const handleExportPDF = async (quote: Quote) => {
     console.log("handleExportPDF called for quote:", quote);
     try {
       const doc = new jsPDF({
@@ -708,10 +762,23 @@ export default function StaffDashboard() {
       doc.rect(0, 0, 210, 38, 'F');
 
       // Title
-      doc.setTextColor(56, 189, 248); // primary light blue
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text('GlassCut Manager', 15, 18);
+      let logoBase64 = null;
+      if (settings?.headerLogo?.url) {
+        try {
+          logoBase64 = await getBase64ImageFromUrl(settings.headerLogo.url);
+        } catch (e) {
+          console.error("Failed to load header logo base64:", e);
+        }
+      }
+
+      if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', 15, 10, 38, 15);
+      } else {
+        doc.setTextColor(56, 189, 248); // primary light blue
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 18);
+      }
       
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
@@ -723,7 +790,7 @@ export default function StaffDashboard() {
       doc.setTextColor(71, 85, 105);
       doc.setFontSize(9.5);
       doc.text(`Quote ID: ${quote.id}`, 15, 52);
-      doc.text(`Date: ${new Date(quote.created_at).toLocaleString()}`, 15, 59);
+      doc.text(`Date: ${formatDateTime(quote.created_at)}`, 15, 59);
       doc.text(`Issued By: ${user?.name || 'Staff User'}`, 15, 66);
 
       // Divider Line
@@ -824,10 +891,37 @@ export default function StaffDashboard() {
       }
 
       // Footer
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 268, 195, 268);
+
+      let footerLogoBase64 = null;
+      if (settings?.footerLogo?.url) {
+        try {
+          footerLogoBase64 = await getBase64ImageFromUrl(settings.footerLogo.url);
+        } catch (e) {
+          console.error("Failed to load footer logo base64:", e);
+        }
+      }
+
+      if (footerLogoBase64) {
+        doc.addImage(footerLogoBase64, 'PNG', 15, 270, 26, 10);
+      } else {
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 276);
+      }
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(`Email: ${settings?.email || 'info@glasscutting.com'}  |  Phone: ${settings?.phone || '+233 24 123 4567'}`, 55, 275);
+      doc.text(`Address: ${settings?.address || '123 Glass Lane, Industrial Area, Accra, Ghana'}`, 55, 279);
+
       doc.setTextColor(148, 163, 184);
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('Thank you for using our glass calculator services. This estimate is valid for 14 days.', 15, 280);
+      doc.setFontSize(7);
+      doc.text('Thank you for using our glass calculator services. This estimate is valid for 14 days.', 15, 287);
 
       addTermsAndConditions(doc);
       downloadPDF(doc, `GlassCut_Quote_${quote.id.slice(0, 8)}.pdf`);
@@ -836,7 +930,7 @@ export default function StaffDashboard() {
     }
   };
 
-  const handleExportInvoicePDF = (invoice: Invoice) => {
+  const handleExportInvoicePDF = async (invoice: Invoice) => {
     console.log("handleExportInvoicePDF called for invoice:", invoice);
     try {
       const doc = new jsPDF({
@@ -850,10 +944,23 @@ export default function StaffDashboard() {
       doc.rect(0, 0, 210, 38, 'F');
 
       // Title
-      doc.setTextColor(56, 189, 248); // primary light blue
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text('GlassCut Manager', 15, 18);
+      let logoBase64 = null;
+      if (settings?.headerLogo?.url) {
+        try {
+          logoBase64 = await getBase64ImageFromUrl(settings.headerLogo.url);
+        } catch (e) {
+          console.error("Failed to load header logo base64:", e);
+        }
+      }
+
+      if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', 15, 10, 38, 15);
+      } else {
+        doc.setTextColor(56, 189, 248); // primary light blue
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 18);
+      }
       
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
@@ -982,10 +1089,37 @@ export default function StaffDashboard() {
       doc.text(`Balance Due: ${invoice.balance_due.toFixed(2)} GHS`, 120, currentY + 10);
 
       // Footer
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 268, 195, 268);
+
+      let footerLogoBase64 = null;
+      if (settings?.footerLogo?.url) {
+        try {
+          footerLogoBase64 = await getBase64ImageFromUrl(settings.footerLogo.url);
+        } catch (e) {
+          console.error("Failed to load footer logo base64:", e);
+        }
+      }
+
+      if (footerLogoBase64) {
+        doc.addImage(footerLogoBase64, 'PNG', 15, 270, 26, 10);
+      } else {
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 276);
+      }
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(`Email: ${settings?.email || 'info@glasscutting.com'}  |  Phone: ${settings?.phone || '+233 24 123 4567'}`, 55, 275);
+      doc.text(`Address: ${settings?.address || '123 Glass Lane, Industrial Area, Accra, Ghana'}`, 55, 279);
+
       doc.setTextColor(148, 163, 184);
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('All payments should refer to the Invoice Number above. Payment terms are net due.', 15, 280);
+      doc.setFontSize(7);
+      doc.text('All payments should refer to the Invoice Number above. Payment terms are net due.', 15, 287);
 
       console.log("PDF data URL prefix:", doc.output('datauristring').substring(0, 150));
       addTermsAndConditions(doc);
@@ -995,7 +1129,7 @@ export default function StaffDashboard() {
     }
   };
 
-  const handleExportReceiptPDF = (bill: Bill, invoice: Invoice) => {
+  const handleExportReceiptPDF = async (bill: Bill, invoice: Invoice) => {
     console.log("handleExportReceiptPDF called for bill and invoice:", bill, invoice);
     try {
       const doc = new jsPDF({
@@ -1009,10 +1143,23 @@ export default function StaffDashboard() {
       doc.rect(0, 0, 210, 38, 'F');
 
       // Title
-      doc.setTextColor(56, 189, 248); // primary light blue
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text('GlassCut Manager', 15, 18);
+      let logoBase64 = null;
+      if (settings?.headerLogo?.url) {
+        try {
+          logoBase64 = await getBase64ImageFromUrl(settings.headerLogo.url);
+        } catch (e) {
+          console.error("Failed to load header logo base64:", e);
+        }
+      }
+
+      if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', 15, 10, 38, 15);
+      } else {
+        doc.setTextColor(56, 189, 248); // primary light blue
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 18);
+      }
       
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
@@ -1111,10 +1258,37 @@ export default function StaffDashboard() {
       doc.text(`Receipt Reference: ${bill.receipt_no}`, 120, summaryY + 11);
 
       // Footer
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 268, 195, 268);
+
+      let footerLogoBase64 = null;
+      if (settings?.footerLogo?.url) {
+        try {
+          footerLogoBase64 = await getBase64ImageFromUrl(settings.footerLogo.url);
+        } catch (e) {
+          console.error("Failed to load footer logo base64:", e);
+        }
+      }
+
+      if (footerLogoBase64) {
+        doc.addImage(footerLogoBase64, 'PNG', 15, 270, 26, 10);
+      } else {
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 276);
+      }
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(`Email: ${settings?.email || 'info@glasscutting.com'}  |  Phone: ${settings?.phone || '+233 24 123 4567'}`, 55, 275);
+      doc.text(`Address: ${settings?.address || '123 Glass Lane, Industrial Area, Accra, Ghana'}`, 55, 279);
+
       doc.setTextColor(148, 163, 184);
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('This is a computer generated payment confirmation statement.', 15, 280);
+      doc.setFontSize(7);
+      doc.text('This is a computer generated payment confirmation statement.', 15, 287);
 
       downloadPDF(doc, `GlassCut_Receipt_${bill.receipt_no}.pdf`);
     } catch (err) {
@@ -1176,14 +1350,29 @@ export default function StaffDashboard() {
       {/* Top Navbar */}
       <header className={styles.navbar}>
         <div className={styles.navBrand}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <line x1="9" y1="3" x2="9" y2="21" />
-            <line x1="3" y1="9" x2="21" y2="9" />
-          </svg>
-          <span className="text-gradient" style={{ fontWeight: 700, fontSize: '1.25rem' }}>
-            GlassCut Manager
-          </span>
+          {settings?.headerLogo ? (
+            <img 
+              src={settings.headerLogo.url} 
+              alt={settings.siteTitle || 'Logo'} 
+              style={{ 
+                height: '32px', 
+                maxWidth: '180px', 
+                objectFit: 'contain',
+                marginRight: '8px'
+              }} 
+            />
+          ) : (
+            <>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+              </svg>
+              <span className="text-gradient" style={{ fontWeight: 700, fontSize: '1.25rem' }}>
+                {settings?.siteTitle || 'GlassCut Manager'}
+              </span>
+            </>
+          )}
           <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>
             Staff Panel
           </span>
@@ -1604,7 +1793,7 @@ export default function StaffDashboard() {
                       {filteredQuotes.map((q) => (
                         <tr key={q.id}>
                           <td style={{ whiteSpace: 'nowrap' }}>
-                            {new Date(q.created_at).toLocaleDateString()}
+                            {formatDate(q.created_at)}
                           </td>
                           <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
                             {q.id.slice(0, 8)}
@@ -1771,8 +1960,8 @@ export default function StaffDashboard() {
                               {inv.customer.email || 'No Email'}
                             </span>
                           </td>
-                          <td>{new Date(inv.created_at).toLocaleDateString()}</td>
-                          <td>{new Date(inv.due_date).toLocaleDateString()}</td>
+                          <td>{formatDate(inv.created_at)}</td>
+                          <td>{formatDate(inv.due_date)}</td>
                           <td>
                             {inv.driver_name || inv.vehicle_no ? (
                               <div>
@@ -1874,7 +2063,7 @@ export default function StaffDashboard() {
                             <td style={{ fontWeight: 600 }}>{bill.receipt_no}</td>
                             <td>{inv.invoice_no}</td>
                             <td>{inv.customer.name}</td>
-                            <td>{new Date(bill.payment_date).toLocaleDateString()}</td>
+                            <td>{formatDate(bill.payment_date)}</td>
                             <td>{bill.payment_method}</td>
                             <td style={{ color: 'var(--success)', fontWeight: 600 }}>{bill.amount_paid.toFixed(2)}</td>
                             <td style={{ textAlign: 'right' }}>
@@ -2284,6 +2473,7 @@ export default function StaffDashboard() {
           </div>
         </div>
       )}
+      <Footer settings={settings} />
     </div>
   );
 }

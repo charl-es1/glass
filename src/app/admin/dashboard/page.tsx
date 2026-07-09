@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { jsPDF } from 'jspdf';
 import styles from './admin.module.css';
 import GlazingConfigTabContent from './GlazingConfigTabContent';
+import Footer from '@/components/Footer';
+import SystemSettingsTabContent from './SystemSettingsTabContent';
 
 interface User {
   id: string;
@@ -84,8 +86,59 @@ export default function AdminDashboard() {
 
   // Navigation & Authentication state
   const [adminUser, setAdminUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'glass' | 'users' | 'quotes' | 'logs' | 'reports' | 'security' | 'glazing-config'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'glass' | 'users' | 'quotes' | 'logs' | 'reports' | 'security' | 'glazing-config' | 'settings'>('overview');
+  const [settings, setSettings] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Helper utility to convert image url to base64 for jsPDF
+  const getBase64ImageFromUrl = (imageUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.setAttribute('crossOrigin', 'anonymous');
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0);
+        const dataURL = canvas.toDataURL('image/png');
+        resolve(dataURL);
+      };
+      img.onerror = (error) => {
+        reject(error);
+      };
+      img.src = imageUrl;
+    });
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings', { cache: 'no-store' });
+      if (res.ok) {
+        setSettings(await res.json());
+      }
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  };
+
+  const formatDateTime = (dateStr: string | Date | number) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleString(settings?.defaultLanguage || 'en');
+    } catch {
+      return String(dateStr);
+    }
+  };
+
+  const formatDate = (dateStr: string | Date | number) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(settings?.defaultLanguage || 'en');
+    } catch {
+      return String(dateStr);
+    }
+  };
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -235,17 +288,19 @@ export default function AdminDashboard() {
 
   const loadAllData = async () => {
     try {
-      const [metricsRes, gtRes, usersRes, quotesRes] = await Promise.all([
+      const [metricsRes, gtRes, usersRes, quotesRes, settingsRes] = await Promise.all([
         fetch('/api/admin/metrics', { cache: 'no-store' }),
         fetch('/api/glass-types', { cache: 'no-store' }),
         fetch('/api/admin/users', { cache: 'no-store' }),
         fetch('/api/admin/quotes', { cache: 'no-store' }),
+        fetch('/api/settings', { cache: 'no-store' }),
       ]);
 
       if (metricsRes.ok) setMetrics(await metricsRes.json());
       if (gtRes.ok) setGlassTypes(await gtRes.json());
       if (usersRes.ok) setUsers(await usersRes.json());
       if (quotesRes.ok) setQuotes(await quotesRes.json());
+      if (settingsRes.ok) setSettings(await settingsRes.json());
       
       if (activeTab === 'logs') {
         fetchLogs();
@@ -281,6 +336,9 @@ export default function AdminDashboard() {
           router.push('/dashboard'); // Staff gets redirected to calculator
           return;
         }
+
+        // Fetch system settings
+        await fetchSettings();
 
         // 2. Fetch admin data lists
         await loadAllData();
@@ -606,10 +664,23 @@ export default function AdminDashboard() {
       doc.rect(0, 0, 210, 38, 'F');
 
       // Title
-      doc.setTextColor(56, 189, 248); // primary light blue
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text('GlassCut Manager', 15, 18);
+      let logoBase64 = null;
+      if (settings?.headerLogo?.url) {
+        try {
+          logoBase64 = await getBase64ImageFromUrl(settings.headerLogo.url);
+        } catch (e) {
+          console.error("Failed to load header logo base64:", e);
+        }
+      }
+
+      if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', 15, 10, 38, 15);
+      } else {
+        doc.setTextColor(56, 189, 248); // primary light blue
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 18);
+      }
       
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
@@ -728,10 +799,37 @@ export default function AdminDashboard() {
       doc.text(`Balance Due: ${fullInvoice.balance_due.toFixed(2)} GHS`, 120, currentY + 10);
 
       // Footer
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 268, 195, 268);
+
+      let footerLogoBase64 = null;
+      if (settings?.footerLogo?.url) {
+        try {
+          footerLogoBase64 = await getBase64ImageFromUrl(settings.footerLogo.url);
+        } catch (e) {
+          console.error("Failed to load footer logo base64:", e);
+        }
+      }
+
+      if (footerLogoBase64) {
+        doc.addImage(footerLogoBase64, 'PNG', 15, 270, 26, 10);
+      } else {
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 276);
+      }
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(`Email: ${settings?.email || 'info@glasscutting.com'}  |  Phone: ${settings?.phone || '+233 24 123 4567'}`, 55, 275);
+      doc.text(`Address: ${settings?.address || '123 Glass Lane, Industrial Area, Accra, Ghana'}`, 55, 279);
+
       doc.setTextColor(148, 163, 184);
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('All payments should refer to the Invoice Number above. Payment terms are net due.', 15, 280);
+      doc.setFontSize(7);
+      doc.text('All payments should refer to the Invoice Number above. Payment terms are net due.', 15, 287);
 
       downloadPDF(doc, `GlassCut_Invoice_${fullInvoice.invoice_no}.pdf`);
     } catch (err) {
@@ -740,7 +838,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleExportReceiptPDF = (bill: any, invoice: any) => {
+  const handleExportReceiptPDF = async (bill: any, invoice: any) => {
     console.log("admin handleExportReceiptPDF called for:", bill, invoice);
     try {
       const doc = new jsPDF({
@@ -754,10 +852,23 @@ export default function AdminDashboard() {
       doc.rect(0, 0, 210, 38, 'F');
 
       // Title
-      doc.setTextColor(56, 189, 248); // primary light blue
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text('GlassCut Manager', 15, 18);
+      let logoBase64 = null;
+      if (settings?.headerLogo?.url) {
+        try {
+          logoBase64 = await getBase64ImageFromUrl(settings.headerLogo.url);
+        } catch (e) {
+          console.error("Failed to load header logo base64:", e);
+        }
+      }
+
+      if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', 15, 10, 38, 15);
+      } else {
+        doc.setTextColor(56, 189, 248); // primary light blue
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 18);
+      }
       
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
@@ -855,10 +966,37 @@ export default function AdminDashboard() {
       doc.text(`Receipt Reference: ${bill.receipt_no}`, 120, summaryY + 11);;
 
       // Footer
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 268, 195, 268);
+
+      let footerLogoBase64 = null;
+      if (settings?.footerLogo?.url) {
+        try {
+          footerLogoBase64 = await getBase64ImageFromUrl(settings.footerLogo.url);
+        } catch (e) {
+          console.error("Failed to load footer logo base64:", e);
+        }
+      }
+
+      if (footerLogoBase64) {
+        doc.addImage(footerLogoBase64, 'PNG', 15, 270, 26, 10);
+      } else {
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 276);
+      }
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(`Email: ${settings?.email || 'info@glasscutting.com'}  |  Phone: ${settings?.phone || '+233 24 123 4567'}`, 55, 275);
+      doc.text(`Address: ${settings?.address || '123 Glass Lane, Industrial Area, Accra, Ghana'}`, 55, 279);
+
       doc.setTextColor(148, 163, 184);
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('This is a computer generated payment confirmation statement.', 15, 280);
+      doc.setFontSize(7);
+      doc.text('This is a computer generated payment confirmation statement.', 15, 287);
 
       downloadPDF(doc, `GlassCut_Receipt_${bill.receipt_no}.pdf`);
     } catch (err) {
@@ -908,14 +1046,29 @@ export default function AdminDashboard() {
       {/* Top Navbar */}
       <header className={styles.navbar}>
         <div className={styles.navBrand}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <line x1="9" y1="3" x2="9" y2="21" />
-            <line x1="3" y1="9" x2="21" y2="9" />
-          </svg>
-          <span className="text-gradient" style={{ fontWeight: 700, fontSize: '1.25rem' }}>
-            GlassCut Manager
-          </span>
+          {settings?.headerLogo ? (
+            <img 
+              src={settings.headerLogo.url} 
+              alt={settings.siteTitle || 'Logo'} 
+              style={{ 
+                height: '32px', 
+                maxWidth: '180px', 
+                objectFit: 'contain',
+                marginRight: '8px'
+              }} 
+            />
+          ) : (
+            <>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+              </svg>
+              <span className="text-gradient" style={{ fontWeight: 700, fontSize: '1.25rem' }}>
+                {settings?.siteTitle || 'GlassCut Manager'}
+              </span>
+            </>
+          )}
           <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>
             {adminUser?.role === 'supervisor' ? 'Supervisor Portal' : 'Admin Portal'}
           </span>
@@ -996,6 +1149,12 @@ export default function AdminDashboard() {
                 onClick={() => { setActiveTab('reports'); setError(''); setSuccess(''); fetchReports(); }}
               >
                 Financial Reports
+              </button>
+              <button
+                className={`${styles.sidebarLink} ${activeTab === 'settings' ? styles.active : ''}`}
+                onClick={() => { setActiveTab('settings'); setError(''); setSuccess(''); }}
+              >
+                System Settings
               </button>
             </>
           )}
@@ -1102,6 +1261,17 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ================= SYSTEM SETTINGS TAB ================= */}
+          {activeTab === 'settings' && (
+            <div className={styles.tabContent}>
+              <div className={styles.paneHeader} style={{ marginBottom: '20px' }}>
+                <h1 style={{ fontSize: '1.5rem' }}>System Settings</h1>
+                <p className="text-muted" style={{ fontSize: '0.875rem' }}>Configure platform branding, contact details, and default localization</p>
+              </div>
+              <SystemSettingsTabContent onSettingsUpdated={fetchSettings} />
             </div>
           )}
 
@@ -1544,7 +1714,7 @@ export default function AdminDashboard() {
                       {filteredQuotes.map((q) => (
                         <tr key={q.id}>
                           <td style={{ whiteSpace: 'nowrap' }}>
-                            {new Date(q.created_at).toLocaleString()}
+                            {formatDateTime(q.created_at)}
                           </td>
                           <td style={{ fontWeight: 600 }}>
                             {q.user.name}
@@ -1642,7 +1812,7 @@ export default function AdminDashboard() {
                       {logs.map((log) => (
                         <tr key={log.id}>
                           <td style={{ whiteSpace: 'nowrap' }}>
-                            {new Date(log.created_at).toLocaleString()}
+                            {formatDateTime(log.created_at)}
                           </td>
                           <td>
                             {log.user_name || log.user_email ? (
@@ -1899,8 +2069,8 @@ export default function AdminDashboard() {
                                       {inv.customer.email || 'No Email'}
                                     </span>
                                   </td>
-                                  <td>{new Date(inv.created_at).toLocaleDateString()}</td>
-                                  <td>{new Date(inv.due_date).toLocaleDateString()}</td>
+                                  <td>{formatDate(inv.created_at)}</td>
+                                  <td>{formatDate(inv.due_date)}</td>
                                   <td style={{ fontWeight: 600 }}>{inv.total_amount.toFixed(2)} GHS</td>
                                   <td style={{ color: 'var(--success)' }}>{inv.amount_paid.toFixed(2)} GHS</td>
                                   <td style={{ color: inv.balance_due > 0 ? 'var(--error)' : 'var(--success)', fontWeight: 600 }}>
@@ -2042,7 +2212,7 @@ export default function AdminDashboard() {
                                       <span className="text-muted" style={{ fontSize: '0.75rem' }}>{v.invoice.vehicle_no || 'N/A'}</span>
                                     </td>
                                     <td>{v.officer_name}</td>
-                                    <td>{new Date(v.verified_at).toLocaleString()}</td>
+                                    <td>{formatDateTime(v.verified_at)}</td>
                                     <td>
                                       <span className={`badge ${badgeClass}`} style={badgeStyle}>
                                         {v.status.split('_').join(' ')}
@@ -2061,7 +2231,7 @@ export default function AdminDashboard() {
                                           className="btn btn-secondary"
                                           style={{ padding: '6px 10px', fontSize: '0.8rem' }}
                                           onClick={() => {
-                                            generateClearancePassPDF(v.invoice, v);
+                                            generateClearancePassPDF(v.invoice, v, settings);
                                           }}
                                         >
                                           PDF
@@ -2106,7 +2276,7 @@ export default function AdminDashboard() {
                           <tbody>
                             {securityLogs.map((log: any) => (
                               <tr key={log.id}>
-                                <td style={{ whiteSpace: 'nowrap' }}>{new Date(log.timestamp).toLocaleString()}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(log.timestamp)}</td>
                                 <td style={{ fontWeight: 600 }}>{log.officer_name}</td>
                                 <td>{log.verification?.invoice?.invoice_no || 'N/A'}</td>
                                 <td>
@@ -2126,6 +2296,7 @@ export default function AdminDashboard() {
               )}
             </div>
           )}
+          <Footer settings={settings} />
         </main>
       </div>
 
@@ -2152,7 +2323,7 @@ export default function AdminDashboard() {
                 <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-muted)' }}>Security Check Details</h4>
                 <div style={{ fontSize: '0.9rem', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div>Officer Name: {selectedVerification.officer_name}</div>
-                  <div>Gate Scan Date: {new Date(selectedVerification.verified_at).toLocaleString()}</div>
+                  <div>Gate Scan Date: {formatDateTime(selectedVerification.verified_at)}</div>
                   <div>Signatory Receiver: {selectedVerification.signatory_name}</div>
                   <div>Offline Subscribed: {selectedVerification.is_offline ? 'Yes' : 'No'}</div>
                 </div>
@@ -2244,7 +2415,7 @@ export default function AdminDashboard() {
   );
 }
 
-const generateClearancePassPDF = (invoice: any, verification: any) => {
+const generateClearancePassPDF = async (invoice: any, verification: any, settings: any) => {
   try {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -2252,16 +2423,47 @@ const generateClearancePassPDF = (invoice: any, verification: any) => {
       format: 'a4',
     });
 
+    const getBase64ImageFromUrl = (imageUrl: string): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.setAttribute('crossOrigin', 'anonymous');
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0);
+          const dataURL = canvas.toDataURL('image/png');
+          resolve(dataURL);
+        };
+        img.onerror = (error) => reject(error);
+        img.src = imageUrl;
+      });
+    };
+
     // Banner Header
     doc.setFillColor(15, 22, 42); // deep navy
     doc.rect(0, 0, 210, 38, 'F');
 
     // Title branding
-    doc.setTextColor(56, 189, 248); // primary light blue
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(22);
-    doc.text('GlassCut Exit Gate', 15, 18);
-    
+    let logoBase64 = null;
+    if (settings?.headerLogo?.url) {
+      try {
+        logoBase64 = await getBase64ImageFromUrl(settings.headerLogo.url);
+      } catch (e) {
+        console.error("Failed to load header logo base64:", e);
+      }
+    }
+
+    if (logoBase64) {
+      doc.addImage(logoBase64, 'PNG', 15, 10, 38, 15);
+    } else {
+      doc.setTextColor(56, 189, 248); // primary light blue
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(22);
+      doc.text(settings?.siteTitle || 'GlassCut Exit Gate', 15, 18);
+    }
+
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(9);
     doc.setFont('Helvetica', 'normal');
@@ -2373,10 +2575,37 @@ const generateClearancePassPDF = (invoice: any, verification: any) => {
     doc.line(15, currentY + 32, 65, currentY + 32);
 
     // Footer
+    doc.setDrawColor(226, 232, 240);
+    doc.line(15, 268, 195, 268);
+
+    let footerLogoBase64 = null;
+    if (settings?.footerLogo?.url) {
+      try {
+        footerLogoBase64 = await getBase64ImageFromUrl(settings.footerLogo.url);
+      } catch (e) {
+        console.error("Failed to load footer logo base64:", e);
+      }
+    }
+
+    if (footerLogoBase64) {
+      doc.addImage(footerLogoBase64, 'PNG', 15, 270, 26, 10);
+    } else {
+      doc.setTextColor(30, 41, 59);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text(settings?.siteTitle || 'GlassCut Manager', 15, 276);
+    }
+
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text(`Email: ${settings?.email || 'info@glasscutting.com'}  |  Phone: ${settings?.phone || '+233 24 123 4567'}`, 55, 275);
+    doc.text(`Address: ${settings?.address || '123 Glass Lane, Industrial Area, Accra, Ghana'}`, 55, 279);
+
     doc.setTextColor(148, 163, 184);
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text('This document certifies that gate exit screening was completed as per business protocol.', 15, 280);
+    doc.setFontSize(7);
+    doc.text('This document certifies that gate exit screening was completed as per business protocol.', 15, 287);
 
     // Trigger download
     const filename = `GateClearance_${invoice.invoice_no}_${verification.clearance_ref || 'PENDING'}.pdf`;

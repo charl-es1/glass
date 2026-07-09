@@ -21,7 +21,8 @@
     "prebuild": "^13.0.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "sharp": "^0.35.2"
+    "sharp": "^0.35.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
