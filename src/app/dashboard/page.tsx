@@ -683,7 +683,6 @@ export default function StaffDashboard() {
     doc.text('Terms & Conditions', 15, 16);
     
     doc.setTextColor(30, 41, 59);
-    doc.setFont('Helvetica', 'normal');
     
     let y = 35;
     const margin = 15;
@@ -696,7 +695,7 @@ export default function StaffDashboard() {
       },
       {
         title: "Payment Terms:",
-        text: "① For tempered glass production, a payment of 100% of the total amount is required before production. Any refund for order changes shall not exceed 10% of the total amount.\n② For aluminum doors and windows orders, a minimum deposit of 60% of the total amount is required upon order confirmation. An additional 20% shall be paid prior to installation, and the remaining 20% balance shall be settled in full upon completion and acceptance of the installation.",
+        text: "(1) For tempered glass production, a payment of 100% of the total amount is required before production. Any refund for order changes shall not exceed 10% of the total amount.\n(2) For aluminum doors and windows orders, a minimum deposit of 60% of the total amount is required upon order confirmation. An additional 20% shall be paid prior to installation, and the remaining 20% balance shall be settled in full upon completion and acceptance of the installation.",
         isBold: false
       },
       {
@@ -706,12 +705,12 @@ export default function StaffDashboard() {
       },
       {
         title: "Product Warranty:",
-        text: "① Warranty for aluminum profiles (breakage, deformation, paint peeling): 5 years.\n② Warranty for hardware accessories, rubber seals, water leakage, and frame tilt: 3 years.\n③ Glass breakage, normal wear and tear, and damage caused by force majeure are not covered under this warranty.",
+        text: "(1) Warranty for aluminum profiles (breakage, deformation, paint peeling): 5 years.\n(2) Warranty for hardware accessories, rubber seals, water leakage, and frame tilt: 3 years.\n(3) Glass breakage, normal wear and tear, and damage caused by force majeure are not covered under this warranty.",
         isBold: false
       },
       {
         title: "Glass Processing Accuracy:",
-        text: "The dimensional tolerance for all processed glass is ±3.0mm. Slight color differences may occur due to material batch or surface treatment. This shall not be considered a defect.",
+        text: "The dimensional tolerance for all processed glass is +/- 3.0mm. Slight color differences may occur due to material batch or surface treatment. This shall not be considered a defect.",
         isBold: false
       },
       {
@@ -725,7 +724,7 @@ export default function StaffDashboard() {
     ];
     
     paragraphs.forEach((p) => {
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       if (p.title) {
         doc.setFont('Helvetica', 'bold');
         doc.text(p.title, margin, y);
@@ -735,14 +734,18 @@ export default function StaffDashboard() {
       doc.setFont('Helvetica', p.isBold ? 'bold' : 'normal');
       const splitText = doc.splitTextToSize(p.text, width);
       doc.text(splitText, margin, y);
-      y += (splitText.length * 4.5) + 6;
+      y += (splitText.length * 4) + 5;
     });
     
-    // Signatures
-    y = 250;
+    // Signatures (position dynamically based on remaining space, capped to ensure it fits on A4 page)
+    y = Math.min(Math.max(y + 12, 230), 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.line(15, y - 5, 195, y - 5);
+
+    doc.setTextColor(30, 41, 59);
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(9);
-    doc.text('CHECK&CONFIRM BY:', margin, y);
+    doc.text('CHECK & CONFIRMED BY:', margin, y);
     y += 15;
     doc.text('SIGNATURE:', margin, y);
   };
