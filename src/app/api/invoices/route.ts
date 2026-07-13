@@ -131,14 +131,14 @@ export async function POST(request: Request) {
           for (const item of parsedItems) {
             itemsToCreate.push({
               quote_id: quoteId,
-              glass_type_id: item.glass_type_id,
-              length: item.length,
-              width: item.width,
-              thickness: item.thickness,
-              area: item.area,
-              quantity: 1,
-              unit_price: item.price,
-              total_price: item.price,
+              glass_type_id: item.glass_type_id || item.glassTypeId || '',
+              length: item.length ?? (item.widthMm ? item.widthMm / 1000 : 0),
+              width: item.width ?? (item.heightMm ? item.heightMm / 1000 : 0),
+              thickness: item.thickness || 6.0,
+              area: item.area ?? item.areaSqm ?? 0,
+              quantity: item.qty || item.quantity || 1,
+              unit_price: item.unitPrice ?? item.price ?? 0,
+              total_price: item.amount ?? item.price ?? 0,
             });
           }
         } else {

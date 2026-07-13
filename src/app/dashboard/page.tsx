@@ -212,16 +212,29 @@ export default function StaffDashboard() {
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
 
-  // Calculator form inputs
-  const [lengthInput, setLengthInput] = useState('');
-  const [widthInput, setWidthInput] = useState('');
-  const [thicknessInput, setThicknessInput] = useState('6.0');
+  // Calculator form inputs (New Flow)
+  const [descriptionInput, setDescriptionInput] = useState('');
+  const [qtyInput, setQtyInput] = useState('1');
+  const [widthMmInput, setWidthMmInput] = useState('');
+  const [heightMmInput, setHeightMmInput] = useState('');
+  const [unitPriceInput, setUnitPriceInput] = useState('');
   const [selectedGlassId, setSelectedGlassId] = useState('');
   const [discountPercentageInput, setDiscountPercentageInput] = useState('');
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   // Calculator list & visualizer states
   const [quoteItems, setQuoteItems] = useState<Array<{
     id: string;
+    ref: number;
+    description: string;
+    qty: number;
+    widthMm: number;
+    heightMm: number;
+    areaSqm: number;
+    unitPrice: number;
+    amount: number;
+    
+    // Backward-compatible fields
     glassTypeId: string;
     glassTypeName: string;
     length: number;
@@ -229,6 +242,7 @@ export default function StaffDashboard() {
     thickness: number;
     area: number;
     price: number;
+    quantity: number;
   }>>([]);
   const [visualizedItem, setVisualizedItem] = useState<{
     length: number;
@@ -237,17 +251,13 @@ export default function StaffDashboard() {
     glassTypeName: string;
   } | null>(null);
 
-  // Auto-update thickness based on selected glass type
+  // Auto-update description and unit price based on selected glass type preset
   useEffect(() => {
     if (!glassTypes.length || !selectedGlassId) return;
     const selected = glassTypes.find((gt) => gt.id === selectedGlassId);
     if (selected) {
-      const match = selected.name.match(/(\d+(?:\.\d+)?)\s*mm/i);
-      if (match) {
-        setThicknessInput(match[1]);
-      } else {
-        setThicknessInput('6.0');
-      }
+      setDescriptionInput(selected.name);
+      setUnitPriceInput(selected.price_per_sqm.toString());
     }
   }, [selectedGlassId, glassTypes]);
 
@@ -515,79 +525,182 @@ export default function StaffDashboard() {
     }
   };
 
-  // Compute live calculations
-  const parsedLength = parseFloat(lengthInput);
-  const parsedWidth = parseFloat(widthInput);
-  const parsedThickness = parseFloat(thicknessInput);
-  const isLengthValid = !isNaN(parsedLength) && parsedLength > 0;
-  const isWidthValid = !isNaN(parsedWidth) && parsedWidth > 0;
-  const isThicknessValid = !isNaN(parsedThickness) && parsedThickness > 0;
+  // Helper to extract thickness from description string
+  const getThicknessFromDescription = (desc: string): number => {
+    const match = desc.match(/(\d+(?:\.\d+)?)\s*mm/i);
+    return match ? parseFloat(match[1]) : 6.0;
+  };
 
+  // Compute live calculations (New Flow)
+  const parsedQty = parseInt(qtyInput);
+  const parsedWidthMm = parseFloat(widthMmInput);
+  const parsedHeightMm = parseFloat(heightMmInput);
+  const parsedUnitPrice = parseFloat(unitPriceInput);
+
+  const isQtyValid = !isNaN(parsedQty) && parsedQty >= 1;
+  const isWidthMmValid = !isNaN(parsedWidthMm) && parsedWidthMm > 0;
+  const isHeightMmValid = !isNaN(parsedHeightMm) && parsedHeightMm > 0;
+  const isUnitPriceValid = !isNaN(parsedUnitPrice) && parsedUnitPrice >= 0;
+
+  const calculatedArea = (isQtyValid && isWidthMmValid && isHeightMmValid)
+    ? Math.round(((parsedWidthMm / 1000) * (parsedHeightMm / 1000) * parsedQty) * 10000) / 10000
+    : 0;
+
+  const calculatedAmount = (calculatedArea > 0 && isUnitPriceValid)
+    ? Math.round(calculatedArea * parsedUnitPrice)
+    : 0;
+
+  const parsedThickness = getThicknessFromDescription(descriptionInput);
   const currentGlass = glassTypes.find((gt) => gt.id === selectedGlassId);
-  const unitPrice = currentGlass ? currentGlass.price_per_sqm * (isThicknessValid ? parsedThickness : 0) : 0;
-  const glassTypeName = currentGlass ? currentGlass.name : '';
+  const unitPricePreset = currentGlass ? currentGlass.price_per_sqm : 0;
 
   const rawDiscount = parseFloat(discountPercentageInput);
   const discountVal = !isNaN(rawDiscount) ? rawDiscount : 0;
   const hasDiscount = (user?.role === 'admin' || user?.role === 'supervisor') && discountVal > 0 && discountVal <= 100;
   const finalDiscountPercent = hasDiscount ? discountVal : 0;
 
-  const area = isLengthValid && isWidthValid ? parsedLength * parsedWidth : 0;
-  const basePrice = area * unitPrice;
-  const discountAmountSingle = basePrice * (finalDiscountPercent / 100);
-  const totalPrice = basePrice - discountAmountSingle;
+  const discountAmountSingle = calculatedAmount * (finalDiscountPercent / 100);
+  const totalPrice = calculatedAmount - discountAmountSingle;
 
-  const baseGrandTotal = quoteItems.reduce((sum, item) => sum + item.price, 0);
+  const baseGrandTotal = quoteItems.reduce((sum, item) => sum + (item.amount || item.price), 0);
   const discountAmountBulk = baseGrandTotal * (finalDiscountPercent / 100);
-  const finalGrandTotal = baseGrandTotal - discountAmountBulk;
+  const finalGrandTotal = Math.round(baseGrandTotal - discountAmountBulk);
 
-  const visualLength = visualizedItem ? visualizedItem.length : (isLengthValid ? parsedLength : 0);
-  const visualWidth = visualizedItem ? visualizedItem.width : (isWidthValid ? parsedWidth : 0);
-  const visualThickness = visualizedItem ? visualizedItem.thickness : (isThicknessValid ? parsedThickness : 0);
-  const visualGlassTypeName = visualizedItem ? visualizedItem.glassTypeName : glassTypeName;
+  const visualLength = visualizedItem 
+    ? (visualizedItem as any).length 
+    : (isWidthMmValid ? parsedWidthMm / 1000 : 0);
+  const visualWidth = visualizedItem 
+    ? (visualizedItem as any).width 
+    : (isHeightMmValid ? parsedHeightMm / 1000 : 0);
+  const visualThickness = visualizedItem 
+    ? (visualizedItem as any).thickness 
+    : parsedThickness;
+  const visualGlassTypeName = visualizedItem 
+    ? (visualizedItem as any).glassTypeName || (visualizedItem as any).description
+    : descriptionInput;
 
   const handleAddToQuoteList = () => {
     setError('');
     setSuccess('');
 
-    if (!lengthInput || !widthInput || !thicknessInput || !selectedGlassId) {
+    if (!descriptionInput || !widthMmInput || !heightMmInput || !qtyInput || !unitPriceInput) {
       setError('Please fill in all inputs to calculate glass specification');
       return;
     }
 
-    if (!isLengthValid || !isWidthValid || !isThicknessValid) {
-      setError('Length, width, and thickness must be positive numbers');
+    if (!isWidthMmValid || !isHeightMmValid || !isQtyValid || !isUnitPriceValid) {
+      setError('Width, height, quantity, and unit price must be positive numbers');
       return;
     }
 
-    if (!currentGlass) {
-      setError('Selected glass type not found');
-      return;
+    const itemThickness = getThicknessFromDescription(descriptionInput);
+
+    if (editingItemId) {
+      // Edit mode: update existing item
+      setQuoteItems((prev) =>
+        prev.map((item) =>
+          item.id === editingItemId
+            ? {
+                ...item,
+                description: descriptionInput,
+                qty: parsedQty,
+                widthMm: parsedWidthMm,
+                heightMm: parsedHeightMm,
+                areaSqm: calculatedArea,
+                unitPrice: parsedUnitPrice,
+                amount: calculatedAmount,
+                
+                // Backward-compatible fields
+                glassTypeId: selectedGlassId,
+                glassTypeName: descriptionInput,
+                length: parsedWidthMm / 1000,
+                width: parsedHeightMm / 1000,
+                thickness: itemThickness,
+                area: calculatedArea,
+                price: calculatedAmount,
+                quantity: parsedQty
+              }
+            : item
+        )
+      );
+      
+      setVisualizedItem({
+        length: parsedWidthMm / 1000,
+        width: parsedHeightMm / 1000,
+        thickness: itemThickness,
+        glassTypeName: descriptionInput,
+      } as any);
+
+      setSuccess('Updated quote item successfully!');
+      setEditingItemId(null);
+    } else {
+      // Add mode: append new item
+      const nextRef = quoteItems.length > 0 
+        ? Math.max(...quoteItems.map(item => (item as any).ref || 0)) + 1 
+        : 1;
+
+      const newItem = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        ref: nextRef,
+        description: descriptionInput,
+        qty: parsedQty,
+        widthMm: parsedWidthMm,
+        heightMm: parsedHeightMm,
+        areaSqm: calculatedArea,
+        unitPrice: parsedUnitPrice,
+        amount: calculatedAmount,
+        
+        // Backward-compatible fields
+        glassTypeId: selectedGlassId,
+        glassTypeName: descriptionInput,
+        length: parsedWidthMm / 1000,
+        width: parsedHeightMm / 1000,
+        thickness: itemThickness,
+        area: calculatedArea,
+        price: calculatedAmount,
+        quantity: parsedQty
+      };
+
+      setQuoteItems((prev) => [...prev, newItem as any]);
+      setVisualizedItem({
+        length: parsedWidthMm / 1000,
+        width: parsedHeightMm / 1000,
+        thickness: itemThickness,
+        glassTypeName: descriptionInput,
+      } as any);
+
+      setSuccess('Added item to current quote calculation!');
     }
 
-    const newItem = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-      glassTypeId: selectedGlassId,
-      glassTypeName: currentGlass.name,
-      length: parsedLength,
-      width: parsedWidth,
-      thickness: parsedThickness,
-      area,
-      price: totalPrice,
-    };
+    // Reset inputs for next item (except glass selection, description and quantity)
+    setWidthMmInput('');
+    setHeightMmInput('');
+  };
 
-    setQuoteItems((prev) => [...prev, newItem]);
+  const handleEditQuoteItem = (item: any) => {
+    setEditingItemId(item.id);
+    setSelectedGlassId(item.glassTypeId || '');
+    setDescriptionInput(item.description || item.glassTypeName || '');
+    setQtyInput((item.qty || item.quantity || 1).toString());
+    setWidthMmInput((item.widthMm || item.length * 1000).toString());
+    setHeightMmInput((item.heightMm || item.width * 1000).toString());
+    setUnitPriceInput((item.unitPrice || item.price / item.area || 0).toString());
+    
+    // Set visualizer
     setVisualizedItem({
-      length: parsedLength,
-      width: parsedWidth,
-      thickness: parsedThickness,
-      glassTypeName: currentGlass.name,
-    });
+      length: item.length,
+      width: item.width,
+      thickness: item.thickness || 6.0,
+      glassTypeName: item.description || item.glassTypeName,
+    } as any);
+  };
 
-    // Reset dimensions inputs for next item
-    setLengthInput('');
-    setWidthInput('');
-    setSuccess('Added item to current quote calculation!');
+  const handleCancelEdit = () => {
+    setEditingItemId(null);
+    setWidthMmInput('');
+    setHeightMmInput('');
+    setSuccess('');
+    setError('');
   };
 
   // Handle saving quote
@@ -603,31 +716,52 @@ export default function StaffDashboard() {
       if (quoteItems.length > 0) {
         payload = {
           items: quoteItems.map((item) => ({
+            ref: (item as any).ref,
+            description: (item as any).description,
+            qty: (item as any).qty,
+            widthMm: (item as any).widthMm,
+            heightMm: (item as any).heightMm,
+            areaSqm: (item as any).areaSqm,
+            unitPrice: (item as any).unitPrice,
+            amount: (item as any).amount,
+            thickness: (item as any).thickness || 6.0,
+            glass_type_id: (item as any).glassTypeId || null,
+            
+            // Backward-compatible fields
             length: item.length,
             width: item.width,
-            thickness: item.thickness,
-            glass_type_id: item.glassTypeId,
+            glass_type_name: (item as any).description
           })),
           discount_percentage: finalDiscountPercent,
         };
       } else {
-        if (!lengthInput || !widthInput || !thicknessInput || !selectedGlassId) {
+        if (!descriptionInput || !widthMmInput || !heightMmInput || !qtyInput || !unitPriceInput) {
           setError('Please fill in all inputs or add items to the quote list');
           setSaveLoading(false);
           return;
         }
 
-        if (!isLengthValid || !isWidthValid || !isThicknessValid) {
-          setError('Length, width, and thickness must be positive numbers');
+        if (!isWidthMmValid || !isHeightMmValid || !isQtyValid || !isUnitPriceValid) {
+          setError('Width, height, quantity, and unit price must be positive numbers');
           setSaveLoading(false);
           return;
         }
 
         payload = {
-          length: parsedLength,
-          width: parsedWidth,
+          ref: 1,
+          description: descriptionInput,
+          qty: parsedQty,
+          widthMm: parsedWidthMm,
+          heightMm: parsedHeightMm,
+          areaSqm: calculatedArea,
+          unitPrice: parsedUnitPrice,
+          amount: calculatedAmount,
           thickness: parsedThickness,
-          glass_type_id: selectedGlassId,
+          glass_type_id: selectedGlassId || null,
+
+          // Backward-compatible fields
+          length: parsedWidthMm / 1000,
+          width: parsedHeightMm / 1000,
           discount_percentage: finalDiscountPercent,
         };
       }
@@ -649,11 +783,15 @@ export default function StaffDashboard() {
       setSuccess(quoteItems.length > 0 ? `Saved ${quoteItems.length} quotes successfully!` : 'Quote saved successfully!');
       
       // Reset inputs & list
-      setLengthInput('');
-      setWidthInput('');
+      setDescriptionInput('');
+      setQtyInput('1');
+      setWidthMmInput('');
+      setHeightMmInput('');
+      setUnitPriceInput('');
       setDiscountPercentageInput('');
       setQuoteItems([]);
       setVisualizedItem(null);
+      setEditingItemId(null);
 
       // Refresh quotes list
       const quotesRes = await fetch('/api/quotes', { cache: 'no-store' });
@@ -800,58 +938,90 @@ export default function StaffDashboard() {
       doc.setDrawColor(226, 232, 240);
       doc.line(15, 73, 195, 73);
 
-      let currentY = 101;
+      // Validity & Production Disclaimer
+      doc.setTextColor(30, 41, 59);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text('• This quotation is valid for 3 days.', 15, 79);
+      doc.text('• Estimated production time will be provided following the confirmation of technical drawings, where applicable.', 15, 84);
+
+      let currentY = 107;
 
       if (quote.items_json) {
         // Render headers for multi-item table
-        doc.setFillColor(248, 250, 252);
-        doc.rect(15, 82, 180, 10, 'F');
+        doc.setFillColor(13, 148, 136); // teal header bar
+        doc.rect(15, 89, 180, 10, 'F');
         
-        doc.setTextColor(30, 41, 59);
+        doc.setTextColor(255, 255, 255);
         doc.setFont('Helvetica', 'bold');
-        doc.text('Glass Option / Dimensions', 18, 88.5);
-        doc.text('Area', 120, 88.5);
-        doc.text('Price GHS', 160, 88.5);
+        doc.setFontSize(8.5);
+        doc.text('Ref', 17, 95.5);
+        doc.text('Description', 26, 95.5);
+        doc.text('Qty', 85, 95.5);
+        doc.text('Width(mm)', 97, 95.5);
+        doc.text('Height(mm)', 118, 95.5);
+        doc.text('Unit Price', 141, 95.5);
+        doc.text('Area(m²)', 161, 95.5);
+        doc.text('Amount', 181, 95.5);
 
         doc.setFont('Helvetica', 'normal');
+        doc.setTextColor(30, 41, 59);
         const parsedItems = JSON.parse(quote.items_json);
         parsedItems.forEach((item: any) => {
-          const specText = `${item.glass_type_name} (${item.length.toFixed(2)}m x ${item.width.toFixed(2)}m x ${item.thickness.toFixed(1)}mm)`;
-          doc.text(specText.length > 50 ? specText.slice(0, 47) + '...' : specText, 18, currentY);
-          doc.text(`${item.area.toFixed(2)} m²`, 120, currentY);
-          doc.text(item.price.toFixed(2), 160, currentY);
+          doc.text(String(item.ref || 1), 17, currentY);
+          const desc = item.description || item.glass_type_name || 'Glass';
+          doc.text(desc.length > 27 ? desc.slice(0, 24) + '...' : desc, 26, currentY);
+          doc.text(String(item.qty || item.quantity || 1), 85, currentY);
+          doc.text(String(item.widthMm || Math.round(item.length * 1000)), 97, currentY);
+          doc.text(String(item.heightMm || Math.round(item.width * 1000)), 118, currentY);
+          doc.text((item.unitPrice || item.price / item.area || 0).toFixed(2), 141, currentY);
+          doc.text((item.areaSqm || item.area || 0).toFixed(4), 161, currentY);
+          doc.text(String(item.amount || Math.round(item.price)), 181, currentY);
           
           doc.setDrawColor(241, 245, 249);
           doc.line(15, currentY + 3, 195, currentY + 3);
           currentY += 9;
         });
       } else {
-        // Render single-item list
-        doc.setFillColor(248, 250, 252);
-        doc.rect(15, 82, 180, 10, 'F');
+        // Render single-item list in columns
+        doc.setFillColor(13, 148, 136); // teal header bar
+        doc.rect(15, 89, 180, 10, 'F');
         
-        doc.setTextColor(30, 41, 59);
+        doc.setTextColor(255, 255, 255);
         doc.setFont('Helvetica', 'bold');
-        doc.text('Specification Detail', 20, 88.5);
-        doc.text('Value', 150, 88.5);
+        doc.setFontSize(8.5);
+        doc.text('Ref', 17, 95.5);
+        doc.text('Description', 26, 95.5);
+        doc.text('Qty', 85, 95.5);
+        doc.text('Width(mm)', 97, 95.5);
+        doc.text('Height(mm)', 118, 95.5);
+        doc.text('Unit Price', 141, 95.5);
+        doc.text('Area(m²)', 161, 95.5);
+        doc.text('Amount', 181, 95.5);
 
         doc.setFont('Helvetica', 'normal');
-        const thickVal = quote.thickness || 6.0;
-        const rows = [
-          { label: 'Glass Type Option', val: quote.glass_type?.name || 'N/A' },
-          { label: 'Unit Price', val: quote.glass_type ? `${(quote.glass_type.price_per_sqm * thickVal).toFixed(2)} GHS/m² (at ${thickVal.toFixed(1)}mm)` : 'N/A' },
-          { label: 'Length Dimension', val: quote.length ? `${quote.length.toFixed(2)} m` : 'N/A' },
-          { label: 'Width Dimension', val: quote.width ? `${quote.width.toFixed(2)} m` : 'N/A' },
-          { label: 'Thickness Option', val: `${thickVal.toFixed(1)} mm` },
-          { label: 'Computed Area', val: quote.area ? `${quote.area.toFixed(2)} m²` : '0.00 m²' },
-        ];
+        doc.setTextColor(30, 41, 59);
 
-        rows.forEach((row) => {
-          doc.text(row.label, 20, currentY);
-          doc.text(row.val, 150, currentY);
-          doc.line(15, currentY + 3, 195, currentY + 3);
-          currentY += 10;
-        });
+        const widthMm = quote.width ? Math.round(quote.width * 1000) : 0;
+        const heightMm = quote.length ? Math.round(quote.length * 1000) : 0;
+        const thickness = quote.thickness || 6.0;
+        const desc = `${quote.glass_type?.name || 'Glass'} (${thickness.toFixed(1)}mm)`;
+        const areaSqm = quote.area || 0;
+        const unitPrice = quote.glass_type ? (quote.glass_type.price_per_sqm * thickness) : 0;
+        const amount = Math.round(quote.total_price);
+
+        doc.text('1', 17, currentY);
+        doc.text(desc.length > 27 ? desc.slice(0, 24) + '...' : desc, 26, currentY);
+        doc.text('1', 85, currentY);
+        doc.text(String(heightMm), 97, currentY);
+        doc.text(String(widthMm), 118, currentY);
+        doc.text(unitPrice.toFixed(2), 141, currentY);
+        doc.text(areaSqm.toFixed(4), 161, currentY);
+        doc.text(String(amount), 181, currentY);
+
+        doc.setDrawColor(241, 245, 249);
+        doc.line(15, currentY + 3, 195, currentY + 3);
+        currentY += 9;
       }
 
       // Price Summary Card
@@ -1451,11 +1621,11 @@ export default function StaffDashboard() {
                   <p className="text-muted" style={{ fontSize: '0.85rem' }}>Enter specifications below to compute prices in real time</p>
                 </div>
 
-                <form onSubmit={handleSaveQuote} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <form onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" htmlFor="glassType">Glass Selection</label>
+                    <label className="form-label" htmlFor="glassPreset">Glass Selection Preset</label>
                     <select
-                      id="glassType"
+                      id="glassPreset"
                       className="form-select"
                       value={selectedGlassId}
                       onChange={(e) => {
@@ -1463,27 +1633,61 @@ export default function StaffDashboard() {
                         setSuccess('');
                       }}
                     >
+                      <option value="">-- Custom Description --</option>
                       {glassTypes.map((gt) => (
                         <option key={gt.id} value={gt.id}>
-                          {gt.name} ({gt.price_per_sqm.toFixed(2)} GHS/m²/mm)
+                          {gt.name} ({gt.price_per_sqm.toFixed(2)} GHS/m²)
                         </option>
                       ))}
                     </select>
                   </div>
 
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" htmlFor="description">Description</label>
+                    <input
+                      type="text"
+                      id="description"
+                      className="form-input"
+                      placeholder="e.g. 6MM CLEAR TEMPERED"
+                      value={descriptionInput}
+                      onChange={(e) => {
+                        setDescriptionInput(e.target.value);
+                        setSuccess('');
+                      }}
+                      required
+                    />
+                  </div>
+
                   <div className={styles.formRow}>
                     <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <label className="form-label" htmlFor="length">Length (m)</label>
+                      <label className="form-label" htmlFor="qty">Qty</label>
                       <input
                         type="number"
-                        id="length"
-                        step="0.01"
-                        min="0.01"
+                        id="qty"
+                        min="1"
+                        step="1"
                         className="form-input"
-                        placeholder="e.g. 1.85"
-                        value={lengthInput}
+                        placeholder="e.g. 8"
+                        value={qtyInput}
                         onChange={(e) => {
-                          setLengthInput(e.target.value);
+                          setQtyInput(e.target.value);
+                          setSuccess('');
+                          setVisualizedItem(null);
+                        }}
+                        required
+                      />
+                    </div>
+                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                      <label className="form-label" htmlFor="widthMm">Width (mm)</label>
+                      <input
+                        type="number"
+                        id="widthMm"
+                        min="1"
+                        className="form-input"
+                        placeholder="e.g. 800"
+                        value={widthMmInput}
+                        onChange={(e) => {
+                          setWidthMmInput(e.target.value);
                           setSuccess('');
                           setVisualizedItem(null);
                         }}
@@ -1491,39 +1695,63 @@ export default function StaffDashboard() {
                       />
                     </div>
                     <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <label className="form-label" htmlFor="width">Width (m)</label>
+                      <label className="form-label" htmlFor="heightMm">Height (mm)</label>
                       <input
                         type="number"
-                        id="width"
-                        step="0.01"
-                        min="0.01"
+                        id="heightMm"
+                        min="1"
                         className="form-input"
-                        placeholder="e.g. 1.20"
-                        value={widthInput}
+                        placeholder="e.g. 1255"
+                        value={heightMmInput}
                         onChange={(e) => {
-                          setWidthInput(e.target.value);
+                          setHeightMmInput(e.target.value);
                           setSuccess('');
                           setVisualizedItem(null);
                         }}
                         required={quoteItems.length === 0}
                       />
                     </div>
+                  </div>
+
+                  <div className={styles.formRow}>
                     <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <label className="form-label" htmlFor="thickness">Thickness (mm)</label>
+                      <label className="form-label" htmlFor="areaSqm">Area (m²)</label>
+                      <input
+                        type="text"
+                        id="areaSqm"
+                        className="form-input"
+                        value={calculatedArea.toFixed(4)}
+                        readOnly
+                        style={{ backgroundColor: 'rgba(255,255,255,0.05)', cursor: 'not-allowed' }}
+                      />
+                    </div>
+                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                      <label className="form-label" htmlFor="unitPrice">Unit Price (GHS per m²)</label>
                       <input
                         type="number"
-                        id="thickness"
-                        step="0.1"
-                        min="0.1"
+                        id="unitPrice"
+                        step="0.01"
+                        min="0"
                         className="form-input"
-                        placeholder="e.g. 6.0"
-                        value={thicknessInput}
+                        placeholder="e.g. 371.02"
+                        value={unitPriceInput}
                         onChange={(e) => {
-                          setThicknessInput(e.target.value);
+                          setUnitPriceInput(e.target.value);
                           setSuccess('');
-                          setVisualizedItem(null);
                         }}
-                        required={quoteItems.length === 0}
+                        disabled={calculatedArea === 0}
+                        required={calculatedArea > 0}
+                      />
+                    </div>
+                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                      <label className="form-label" htmlFor="amount">Amount (GHS)</label>
+                      <input
+                        type="text"
+                        id="amount"
+                        className="form-input"
+                        value={calculatedAmount.toString()}
+                        readOnly
+                        style={{ backgroundColor: 'rgba(255,255,255,0.05)', cursor: 'not-allowed', fontWeight: 'bold', color: 'var(--primary)' }}
                       />
                     </div>
                   </div>
@@ -1549,154 +1777,26 @@ export default function StaffDashboard() {
                     </div>
                   )}
 
-                  {/* Dynamic Calculations Box */}
-                  <div className={styles.summaryBox}>
-                    <div className={styles.summaryRow}>
-                      <span className="text-muted">Unit Area:</span>
-                      <span style={{ fontWeight: 600 }}>{area.toFixed(3)} m²</span>
-                    </div>
-                    <div className={styles.summaryRow}>
-                      <span className="text-muted">Unit Price:</span>
-                      <span style={{ fontWeight: 600 }}>{unitPrice.toFixed(2)} GHS/m²</span>
-                    </div>
-                    {finalDiscountPercent > 0 && (
-                      <div className={styles.summaryRow}>
-                        <span className="text-muted">Discount ({finalDiscountPercent}%):</span>
-                        <span style={{ fontWeight: 600, color: 'var(--error)' }}>
-                          -{discountAmountSingle.toFixed(2)} GHS
-                        </span>
-                      </div>
-                    )}
-                    <div className={styles.divider}></div>
-                    <div className={styles.summaryRow} style={{ fontSize: '1.1rem' }}>
-                      <span style={{ fontWeight: 600 }}>Total Cost:</span>
-                      <span style={{ color: 'var(--primary)', fontWeight: 700 }}>
-                        {totalPrice.toFixed(2)} GHS
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Calculated items list */}
-                  {quoteItems.length > 0 && (
-                    <div style={{ marginTop: '16px', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Calculated Items ({quoteItems.length})</span>
-                        <button
-                          type="button"
-                          className="btn-link"
-                          style={{ fontSize: '0.75rem', color: 'var(--error)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                          onClick={() => { setQuoteItems([]); setVisualizedItem(null); }}
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '160px', overflowY: 'auto', paddingRight: '4px' }}>
-                        {quoteItems.map((item) => {
-                          const isVisualized = visualizedItem && 
-                            visualizedItem.length === item.length && 
-                            visualizedItem.width === item.width && 
-                            visualizedItem.thickness === item.thickness && 
-                            visualizedItem.glassTypeName === item.glassTypeName;
-                            
-                          return (
-                            <div 
-                              key={item.id} 
-                              onClick={() => setVisualizedItem({
-                                length: item.length,
-                                width: item.width,
-                                thickness: item.thickness,
-                                glassTypeName: item.glassTypeName
-                              })}
-                              style={{ 
-                                display: 'flex', 
-                                justifyContent: 'space-between', 
-                                alignItems: 'center', 
-                                padding: '8px', 
-                                borderRadius: '6px', 
-                                background: isVisualized ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255,255,255,0.01)',
-                                border: isVisualized ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(255,255,255,0.03)',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s'
-                              }}
-                            >
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
-                                <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>{item.glassTypeName}</span>
-                                <span className="text-muted" style={{ fontSize: '0.7rem' }}>
-                                  {item.length}m × {item.width}m × {item.thickness}mm
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)' }}>
-                                  {item.price.toFixed(2)} GHS
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setQuoteItems((prev) => prev.filter((i) => i.id !== item.id));
-                                    if (isVisualized) {
-                                      setVisualizedItem(null);
-                                    }
-                                  }}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: 'var(--error)',
-                                    cursor: 'pointer',
-                                    fontSize: '1rem',
-                                    padding: '2px 6px',
-                                    lineHeight: 1
-                                  }}
-                                  title="Remove item"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {finalDiscountPercent > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '0.85rem' }}>
-                          <span className="text-muted">Subtotal:</span>
-                          <span>{baseGrandTotal.toFixed(2)} GHS</span>
-                        </div>
-                      )}
-                      {finalDiscountPercent > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.85rem' }}>
-                          <span className="text-muted">Discount ({finalDiscountPercent}%):</span>
-                          <span style={{ color: 'var(--error)' }}>-{discountAmountBulk.toFixed(2)} GHS</span>
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: '0.9rem', fontWeight: 600 }}>
-                        <span>Grand Total:</span>
-                        <span style={{ color: 'var(--primary)' }}>
-                          {finalGrandTotal.toFixed(2)} GHS
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                     <button
                       type="button"
-                      className="btn btn-secondary"
+                      className={`btn ${editingItemId ? 'btn-primary' : 'btn-secondary'}`}
                       style={{ flex: 1 }}
-                      disabled={!isLengthValid || !isWidthValid || !isThicknessValid}
+                      disabled={!isWidthMmValid || !isHeightMmValid || !isQtyValid || !isUnitPriceValid}
                       onClick={handleAddToQuoteList}
                     >
-                      Add to Quote List
+                      {editingItemId ? 'Update Row' : 'Add to Quote List'}
                     </button>
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      style={{ flex: 1 }}
-                      disabled={saveLoading || (quoteItems.length === 0 && (!isLengthValid || !isWidthValid || !isThicknessValid))}
-                    >
-                      {saveLoading ? 'Saving...' : quoteItems.length > 0 ? `Save & Log (${quoteItems.length})` : 'Save & Log Quote'}
-                    </button>
+                    {editingItemId && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ flex: 1 }}
+                        onClick={handleCancelEdit}
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
                 </form>
               </section>
@@ -1718,6 +1818,138 @@ export default function StaffDashboard() {
                 </div>
               </section>
             </div>
+
+            {/* Quotation Builder Table */}
+            <section className="card" style={{ marginTop: '32px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', marginBottom: '4px' }}>Quotation Table</h2>
+                  <p className="text-muted" style={{ fontSize: '0.85rem' }}>Current quote items. Valid for 3 days.</p>
+                </div>
+                {quoteItems.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.8rem', padding: '6px 12px', borderColor: 'var(--error)', color: 'var(--error)' }}
+                    onClick={() => {
+                      setQuoteItems([]);
+                      setVisualizedItem(null);
+                      setEditingItemId(null);
+                    }}
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+
+              {quoteItems.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.1)' }}>
+                        <th style={{ textAlign: 'left', padding: '12px 8px' }}>Ref</th>
+                        <th style={{ textAlign: 'left', padding: '12px 8px' }}>Description</th>
+                        <th style={{ textAlign: 'center', padding: '12px 8px' }}>Qty</th>
+                        <th style={{ textAlign: 'right', padding: '12px 8px' }}>Width (mm)</th>
+                        <th style={{ textAlign: 'right', padding: '12px 8px' }}>Height (mm)</th>
+                        <th style={{ textAlign: 'right', padding: '12px 8px' }}>Unit Price (GHS)</th>
+                        <th style={{ textAlign: 'right', padding: '12px 8px' }}>Area (m²)</th>
+                        <th style={{ textAlign: 'right', padding: '12px 8px' }}>Amount (GHS)</th>
+                        <th style={{ textAlign: 'center', padding: '12px 8px' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {quoteItems.map((item, idx) => (
+                        <tr 
+                          key={item.id} 
+                          style={{ 
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                            backgroundColor: idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent' 
+                          }}
+                        >
+                          <td style={{ padding: '12px 8px' }}>{item.ref}</td>
+                          <td style={{ padding: '12px 8px', fontWeight: 500 }}>{item.description}</td>
+                          <td style={{ padding: '12px 8px', textAlign: 'center' }}>{item.qty}</td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>{item.widthMm}</td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>{item.heightMm}</td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>{item.unitPrice.toFixed(2)}</td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>{item.areaSqm.toFixed(4)}</td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--primary)' }}>{item.amount}</td>
+                          <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                                onClick={() => handleEditQuoteItem(item)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--error)', borderColor: 'var(--error)' }}
+                                onClick={() => {
+                                  setQuoteItems((prev) => prev.filter((i) => i.id !== item.id));
+                                  if (visualizedItem && (visualizedItem as any).ref === item.ref) {
+                                    setVisualizedItem(null);
+                                  }
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      
+                      {/* Discount and Grand Total rows */}
+                      {finalDiscountPercent > 0 && (
+                        <tr style={{ borderTop: '2px solid rgba(255,255,255,0.05)' }}>
+                          <td colSpan={7} style={{ textAlign: 'right', padding: '8px', fontWeight: 'bold' }}>Subtotal:</td>
+                          <td style={{ textAlign: 'right', padding: '8px', fontWeight: 'bold' }}>{baseGrandTotal} GHS</td>
+                          <td></td>
+                        </tr>
+                      )}
+                      {finalDiscountPercent > 0 && (
+                        <tr>
+                          <td colSpan={7} style={{ textAlign: 'right', padding: '8px', fontWeight: 'bold', color: 'var(--error)' }}>
+                            Discount ({finalDiscountPercent}%):
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '8px', fontWeight: 'bold', color: 'var(--error)' }}>
+                            -{discountAmountBulk.toFixed(2)} GHS
+                          </td>
+                          <td></td>
+                        </tr>
+                      )}
+                      <tr style={{ borderTop: '2px solid rgba(255,255,255,0.1)', fontSize: '1.05rem' }}>
+                        <td colSpan={7} style={{ textAlign: 'right', padding: '12px 8px', fontWeight: 'bold' }}>Grand Total:</td>
+                        <td style={{ textAlign: 'right', padding: '12px 8px', fontWeight: 'bold', color: 'var(--primary)' }}>
+                          {finalGrandTotal} GHS
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={saveLoading}
+                      onClick={handleSaveQuote}
+                      style={{ padding: '10px 24px' }}
+                    >
+                      {saveLoading ? 'Saving...' : `Save & Log Quotation (${quoteItems.length} items)`}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px', backgroundColor: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                  <span className="text-muted" style={{ fontSize: '0.9rem' }}>No items added to the quotation yet.</span>
+                </div>
+              )}
+            </section>
 
             {/* Bottom Section: My Quotes History */}
             <section className="card" style={{ marginTop: '32px' }}>

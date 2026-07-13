@@ -81,26 +81,47 @@ export async function POST(request: Request) {
     if (items && Array.isArray(items) && items.length > 0) {
       // Validate all items
       for (const item of items) {
-        const { length: len, width: wid, thickness: thick, glass_type_id: gtId } = item;
-        if (len === undefined || wid === undefined || !gtId) {
-          return NextResponse.json(
-            { error: 'All items must have length, width, and glass type specified' },
-            { status: 400 }
-          );
-        }
-        const parsedLen = parseFloat(len);
-        const parsedWid = parseFloat(wid);
-        const parsedThick = thick !== undefined ? parseFloat(thick) : 6.0;
-        if (isNaN(parsedLen) || parsedLen <= 0 || isNaN(parsedWid) || parsedWid <= 0 || isNaN(parsedThick) || parsedThick <= 0) {
-          return NextResponse.json(
-            { error: 'Length, width, and thickness must be positive numbers' },
-            { status: 400 }
-          );
+        const isNewSchema = item.widthMm !== undefined && item.heightMm !== undefined && item.qty !== undefined && item.unitPrice !== undefined;
+        if (isNewSchema) {
+          const { widthMm, heightMm, qty, unitPrice, description } = item;
+          if (!description) {
+            return NextResponse.json(
+              { error: 'All items must have a description specified' },
+              { status: 400 }
+            );
+          }
+          const parsedWidthMm = parseFloat(widthMm);
+          const parsedHeightMm = parseFloat(heightMm);
+          const parsedQty = parseInt(qty);
+          const parsedUnitPrice = parseFloat(unitPrice);
+          if (isNaN(parsedWidthMm) || parsedWidthMm <= 0 || isNaN(parsedHeightMm) || parsedHeightMm <= 0 || isNaN(parsedQty) || parsedQty <= 0 || isNaN(parsedUnitPrice) || parsedUnitPrice <= 0) {
+            return NextResponse.json(
+              { error: 'Width, height, quantity, and unit price must be positive numbers' },
+              { status: 400 }
+            );
+          }
+        } else {
+          const { length: len, width: wid, thickness: thick, glass_type_id: gtId } = item;
+          if (len === undefined || wid === undefined || !gtId) {
+            return NextResponse.json(
+              { error: 'All items must have length, width, and glass type specified' },
+              { status: 400 }
+            );
+          }
+          const parsedLen = parseFloat(len);
+          const parsedWid = parseFloat(wid);
+          const parsedThick = thick !== undefined ? parseFloat(thick) : 6.0;
+          if (isNaN(parsedLen) || parsedLen <= 0 || isNaN(parsedWid) || parsedWid <= 0 || isNaN(parsedThick) || parsedThick <= 0) {
+            return NextResponse.json(
+              { error: 'Length, width, and thickness must be positive numbers' },
+              { status: 400 }
+            );
+          }
         }
       }
 
       // Fetch all required glass types first to validate and compute
-      const glassTypeIds = Array.from(new Set(items.map((item: any) => item.glass_type_id)));
+      const glassTypeIds = Array.from(new Set(items.map((item: any) => item.glass_type_id).filter(Boolean)));
       const glassTypesMap = new Map();
 
       for (const gtId of glassTypeIds) {
@@ -115,35 +136,84 @@ export async function POST(request: Request) {
       let totalArea = 0;
       let grandTotal = 0;
 
-      for (const item of items) {
-        const { length: len, width: wid, thickness: thick, glass_type_id: gtId } = item;
-        const parsedLen = parseFloat(len);
-        const parsedWid = parseFloat(wid);
-        const parsedThick = thick !== undefined ? parseFloat(thick) : 6.0;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const isNewSchema = item.widthMm !== undefined && item.heightMm !== undefined && item.qty !== undefined && item.unitPrice !== undefined;
 
-        const glassType = glassTypesMap.get(gtId);
-        if (!glassType) {
-          return NextResponse.json(
-            { error: `Selected glass type does not exist: ${gtId}` },
-            { status: 400 }
-          );
+        if (isNewSchema) {
+          const { widthMm, heightMm, qty, unitPrice, description, glass_type_id } = item;
+          const parsedWidthMm = parseFloat(widthMm);
+          const parsedHeightMm = parseFloat(heightMm);
+          const parsedQty = parseInt(qty);
+          const parsedUnitPrice = parseFloat(unitPrice);
+
+          const areaSqm = (parsedWidthMm / 1000) * (parsedHeightMm / 1000) * parsedQty;
+          const areaSqmRounded = Math.round(areaSqm * 10000) / 10000;
+          const amount = Math.round(areaSqmRounded * parsedUnitPrice);
+
+          totalArea += areaSqmRounded;
+          grandTotal += amount;
+
+          computedItems.push({
+            ref: item.ref || (i + 1),
+            description,
+            qty: parsedQty,
+            widthMm: parsedWidthMm,
+            heightMm: parsedHeightMm,
+            areaSqm: areaSqmRounded,
+            unitPrice: parsedUnitPrice,
+            amount,
+            
+            // Backward-compatible fields
+            glass_type_id: glass_type_id || null,
+            glass_type_name: description,
+            length: parsedWidthMm / 1000,
+            width: parsedHeightMm / 1000,
+            thickness: item.thickness || 6.0,
+            area: areaSqmRounded,
+            price: amount,
+            quantity: parsedQty
+          });
+        } else {
+          const { length: len, width: wid, thickness: thick, glass_type_id: gtId } = item;
+          const parsedLen = parseFloat(len);
+          const parsedWid = parseFloat(wid);
+          const parsedThick = thick !== undefined ? parseFloat(thick) : 6.0;
+
+          const glassType = glassTypesMap.get(gtId);
+          if (!glassType) {
+            return NextResponse.json(
+              { error: `Selected glass type does not exist: ${gtId}` },
+              { status: 400 }
+            );
+          }
+
+          const area = parsedLen * parsedWid;
+          const price = area * glassType.price_per_sqm * parsedThick;
+
+          totalArea += area;
+          grandTotal += price;
+
+          computedItems.push({
+            ref: i + 1,
+            description: glassType.name,
+            qty: 1,
+            widthMm: parsedLen * 1000,
+            heightMm: parsedWid * 1000,
+            areaSqm: area,
+            unitPrice: glassType.price_per_sqm * parsedThick,
+            amount: Math.round(price),
+            
+            glass_type_id: gtId,
+            glass_type_name: glassType.name,
+            length: parsedLen,
+            width: parsedWid,
+            thickness: parsedThick,
+            area,
+            price,
+            quantity: 1
+          });
         }
-
-        const area = parsedLen * parsedWid;
-        const price = area * glassType.price_per_sqm * parsedThick;
-
-        totalArea += area;
-        grandTotal += price;
-
-        computedItems.push({
-          glass_type_id: gtId,
-          glass_type_name: glassType.name,
-          length: parsedLen,
-          width: parsedWid,
-          thickness: parsedThick,
-          area,
-          price,
-        });
       }
 
       const discountAmount = grandTotal * (finalDiscount / 100);
@@ -169,7 +239,7 @@ export async function POST(request: Request) {
 
       // Log combined activity
       const quoteSummaries = computedItems
-        .map((item) => `${item.glass_type_name} (${item.length.toFixed(2)}m x ${item.width.toFixed(2)}m)`)
+        .map((item) => `${item.description} (${item.qty}pcs: ${item.widthMm}mm x ${item.heightMm}mm)`)
         .join(', ');
       await logActivity(
         user.id,
@@ -189,6 +259,85 @@ export async function POST(request: Request) {
     }
 
     // Fall back to single quote insert
+    const isNewSchema = body.widthMm !== undefined && body.heightMm !== undefined && body.qty !== undefined && body.unitPrice !== undefined;
+    if (isNewSchema) {
+      const { widthMm, heightMm, qty, unitPrice, description, glass_type_id } = body;
+      if (!description) {
+        return NextResponse.json(
+          { error: 'Description is required' },
+          { status: 400 }
+        );
+      }
+      const parsedWidthMm = parseFloat(widthMm);
+      const parsedHeightMm = parseFloat(heightMm);
+      const parsedQty = parseInt(qty);
+      const parsedUnitPrice = parseFloat(unitPrice);
+
+      if (isNaN(parsedWidthMm) || parsedWidthMm <= 0 || isNaN(parsedHeightMm) || parsedHeightMm <= 0 || isNaN(parsedQty) || parsedQty <= 0 || isNaN(parsedUnitPrice) || parsedUnitPrice <= 0) {
+        return NextResponse.json(
+          { error: 'Width, height, quantity, and unit price must be positive numbers' },
+          { status: 400 }
+        );
+      }
+
+      const areaSqm = (parsedWidthMm / 1000) * (parsedHeightMm / 1000) * parsedQty;
+      const areaSqmRounded = Math.round(areaSqm * 10000) / 10000;
+      const amount = Math.round(areaSqmRounded * parsedUnitPrice);
+      
+      const discountAmount = amount * (finalDiscount / 100);
+      const finalTotalPrice = amount - discountAmount;
+
+      const docRef = adminDb.collection('quotes').doc();
+      const newQuote = {
+        id: docRef.id,
+        user_id: user.id,
+        glass_type_id: glass_type_id || null,
+        length: parsedWidthMm / 1000,
+        width: parsedHeightMm / 1000,
+        thickness: body.thickness || 6.0,
+        area: areaSqmRounded,
+        total_price: finalTotalPrice,
+        discount_percentage: finalDiscount,
+        created_at: new Date().toISOString(),
+        items_json: JSON.stringify([{
+          ref: 1,
+          description,
+          qty: parsedQty,
+          widthMm: parsedWidthMm,
+          heightMm: parsedHeightMm,
+          areaSqm: areaSqmRounded,
+          unitPrice: parsedUnitPrice,
+          amount: amount,
+          glass_type_id: glass_type_id || null,
+          glass_type_name: description,
+          length: parsedWidthMm / 1000,
+          width: parsedHeightMm / 1000,
+          thickness: body.thickness || 6.0,
+          area: areaSqmRounded,
+          price: amount,
+          quantity: parsedQty
+        }])
+      };
+
+      await docRef.set(newQuote);
+
+      await logActivity(
+        user.id,
+        user.email,
+        user.name,
+        'CREATE_QUOTE',
+        `Created quote for ${description} (${parsedWidthMm}mm × ${parsedHeightMm}mm × ${parsedQty}pcs) - Total: ${finalTotalPrice.toFixed(2)} GHS (Discounted ${finalDiscount}%)`
+      );
+
+      const responseQuote = {
+        ...newQuote,
+        glass_type: glass_type_id ? { name: description, price_per_sqm: parsedUnitPrice } : null,
+        line_items: [],
+      };
+
+      return NextResponse.json(responseQuote, { status: 201 });
+    }
+
     if (length === undefined || width === undefined || !glass_type_id) {
       return NextResponse.json(
         { error: 'Length, width, and glass type are required' },
